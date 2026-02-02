@@ -911,6 +911,19 @@ body {
   transform: scale(1.02);
 }
 
+.message-images-placeholder {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 12px;
+  background: var(--input-bg);
+  border: 1px dashed var(--border-color);
+  border-radius: 8px;
+  color: var(--text-secondary);
+  font-size: 13px;
+  margin-top: 8px;
+}
+
 /* Drag and drop overlay */
 .drag-overlay {
   display: none;

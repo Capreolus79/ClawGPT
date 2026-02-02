@@ -2037,11 +2037,25 @@ Example: [0, 2, 5]`;
       const regenIcon = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 2v6h-6"/><path d="M3 12a9 9 0 0 1 15-6.7L21 8"/><path d="M3 22v-6h6"/><path d="M21 12a9 9 0 0 1-15 6.7L3 16"/></svg>`;
       
       // Render images if present
-      const imagesHtml = msg.images && msg.images.length > 0 
-        ? `<div class="message-images">${msg.images.map(img => 
-            `<img src="${img.base64}" alt="Uploaded image" onclick="window.open('${img.base64}', '_blank')">`
-          ).join('')}</div>`
-        : '';
+      // Check for session images first (current session), then fall back to placeholder
+      const msgKey = `${this.currentChatId}-${originalIdx}`;
+      const sessionImgs = this.sessionImages?.get(msgKey);
+      let imagesHtml = '';
+      
+      if (sessionImgs && sessionImgs.length > 0) {
+        // Have actual images from current session
+        imagesHtml = `<div class="message-images">${sessionImgs.map(img => 
+          `<img src="${img.base64}" alt="Uploaded image" onclick="window.open('${img.base64}', '_blank')">`
+        ).join('')}</div>`;
+      } else if (msg.imageCount > 0) {
+        // Historical message - show placeholder
+        imagesHtml = `<div class="message-images-placeholder">🖼️ ${msg.imageCount} image${msg.imageCount > 1 ? 's' : ''} attached</div>`;
+      } else if (msg.images && msg.images.length > 0) {
+        // Legacy format (old chats that still have images stored)
+        imagesHtml = `<div class="message-images">${msg.images.map(img => 
+          `<img src="${img.base64}" alt="Uploaded image" onclick="window.open('${img.base64}', '_blank')">`
+        ).join('')}</div>`;
+      }
       
       // Render text files if present
       const textFilesHtml = msg.textFiles && msg.textFiles.length > 0
@@ -3376,13 +3390,22 @@ Example: [0, 2, 5]`;
     }
 
     // Add user message
+    // Note: We don't persist full image data to save storage
+    // Just store the count for display purposes
     const userMsg = {
       role: 'user',
       content: displayContent || '[File]',
-      images: images, // Store images separately for display
-      textFiles: textFiles, // Store text files for display
+      imageCount: images?.length || 0, // Just store count, not full base64
+      textFiles: textFiles, // Store text files for display (small)
       timestamp: Date.now()
     };
+    
+    // Keep images in session memory for current display (until page refresh)
+    if (images && images.length > 0) {
+      if (!this.sessionImages) this.sessionImages = new Map();
+      const msgKey = `${this.currentChatId}-${this.chats[this.currentChatId].messages.length}`;
+      this.sessionImages.set(msgKey, images);
+    }
     this.chats[this.currentChatId].messages.push(userMsg);
     this.chats[this.currentChatId].updatedAt = Date.now();
     this.saveChats();
