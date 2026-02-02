@@ -326,16 +326,15 @@
             </button>
           </div>
           <div class="token-help-inline">
-            <button type="button" class="get-token-btn" id="getTokenBtn">Get token from Control Panel</button>
-            <span class="token-help-or">or</span>
-            <details class="token-help">
-              <summary>find it manually</summary>
-              <div class="token-help-content">
-                <p>Your token is in:</p>
-                <code class="config-path" id="configPathDisplay">~/.openclaw/openclaw.json</code>
-                <p>Look for <strong>gateway.auth.token</strong></p>
-              </div>
-            </details>
+            <p class="token-help-text">Run this command to see your token:</p>
+            <div class="copy-command token-copy-cmd">
+              <code id="tokenCommand">jq -r '.gateway.auth.token' ~/.openclaw/openclaw.json</code>
+              <button type="button" class="copy-cmd-btn" id="copyTokenCmd" title="Copy command">📋</button>
+            </div>
+            <p class="token-help-alt">
+              <span id="altCommandHint">or on Windows:</span>
+              <code id="altCommand" class="alt-cmd">type %USERPROFILE%\.openclaw\openclaw.json | findstr token</code>
+            </p>
           </div>
         </div>
         

@@ -468,15 +468,20 @@ class ClawGPT {
   
   updateConfigPaths() {
     const isWindows = navigator.platform.toLowerCase().includes('win');
-    const configPathEl = document.getElementById('configPathDisplay');
     const tokenCmdEl = document.getElementById('tokenCommand');
+    const altCmdEl = document.getElementById('altCommand');
+    const altHintEl = document.getElementById('altCommandHint');
     
     if (isWindows) {
-      if (configPathEl) configPathEl.textContent = '%USERPROFILE%\\.openclaw\\config.yaml';
-      if (tokenCmdEl) tokenCmdEl.textContent = 'type %USERPROFILE%\\.openclaw\\config.yaml | findstr "token"';
+      // Windows: show PowerShell command, alt is basic cmd
+      if (tokenCmdEl) tokenCmdEl.textContent = '(Get-Content ~/.openclaw/openclaw.json | ConvertFrom-Json).gateway.auth.token';
+      if (altHintEl) altHintEl.textContent = 'or open the file:';
+      if (altCmdEl) altCmdEl.textContent = '%USERPROFILE%\\.openclaw\\openclaw.json';
     } else {
-      if (configPathEl) configPathEl.textContent = '~/.openclaw/config.yaml';
-      if (tokenCmdEl) tokenCmdEl.textContent = 'grep -A1 "auth:" ~/.openclaw/config.yaml';
+      // Mac/Linux: show jq command (clean output), alt is grep
+      if (tokenCmdEl) tokenCmdEl.textContent = "jq -r '.gateway.auth.token' ~/.openclaw/openclaw.json";
+      if (altHintEl) altHintEl.textContent = 'or without jq:';
+      if (altCmdEl) altCmdEl.textContent = "grep -o '\"token\": *\"[^\"]*\"' ~/.openclaw/openclaw.json";
     }
   }
   
