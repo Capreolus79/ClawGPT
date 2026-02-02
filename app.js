@@ -1,6 +1,150 @@
 // ClawGPT - ChatGPT-like interface for OpenClaw
 // https://github.com/openclaw/openclaw
 
+// IndexedDB wrapper for chat storage
+class ChatStorage {
+  constructor() {
+    this.dbName = 'clawgpt';
+    this.dbVersion = 1;
+    this.storeName = 'chats';
+    this.db = null;
+  }
+
+  async init() {
+    if (this.db) return this.db;
+    
+    return new Promise((resolve, reject) => {
+      const request = indexedDB.open(this.dbName, this.dbVersion);
+      
+      request.onerror = () => {
+        console.warn('IndexedDB not available, falling back to localStorage');
+        this.useFallback = true;
+        resolve(null);
+      };
+      
+      request.onsuccess = (event) => {
+        this.db = event.target.result;
+        resolve(this.db);
+      };
+      
+      request.onupgradeneeded = (event) => {
+        const db = event.target.result;
+        if (!db.objectStoreNames.contains(this.storeName)) {
+          db.createObjectStore(this.storeName, { keyPath: 'id' });
+        }
+      };
+    });
+  }
+
+  async loadAll() {
+    // Migrate from localStorage if needed
+    const legacyData = localStorage.getItem('clawgpt-chats');
+    
+    if (this.useFallback) {
+      return legacyData ? JSON.parse(legacyData) : {};
+    }
+
+    await this.init();
+    
+    return new Promise((resolve, reject) => {
+      const transaction = this.db.transaction([this.storeName], 'readonly');
+      const store = transaction.objectStore(this.storeName);
+      const request = store.getAll();
+      
+      request.onsuccess = () => {
+        const chats = {};
+        request.result.forEach(chat => {
+          chats[chat.id] = chat;
+        });
+        
+        // If IndexedDB is empty but localStorage has data, migrate it
+        if (Object.keys(chats).length === 0 && legacyData) {
+          const legacy = JSON.parse(legacyData);
+          this.saveAll(legacy).then(() => {
+            // Clear localStorage after successful migration
+            localStorage.removeItem('clawgpt-chats');
+            console.log('Migrated chats from localStorage to IndexedDB');
+          });
+          resolve(legacy);
+        } else {
+          resolve(chats);
+        }
+      };
+      
+      request.onerror = () => {
+        console.error('Failed to load chats from IndexedDB');
+        resolve(legacyData ? JSON.parse(legacyData) : {});
+      };
+    });
+  }
+
+  async saveAll(chats) {
+    if (this.useFallback) {
+      localStorage.setItem('clawgpt-chats', JSON.stringify(chats));
+      return;
+    }
+
+    await this.init();
+    
+    return new Promise((resolve, reject) => {
+      const transaction = this.db.transaction([this.storeName], 'readwrite');
+      const store = transaction.objectStore(this.storeName);
+      
+      // Clear and re-add all (simple approach)
+      store.clear();
+      
+      Object.values(chats).forEach(chat => {
+        store.put(chat);
+      });
+      
+      transaction.oncomplete = () => resolve();
+      transaction.onerror = () => {
+        console.error('Failed to save chats to IndexedDB, using localStorage fallback');
+        localStorage.setItem('clawgpt-chats', JSON.stringify(chats));
+        resolve();
+      };
+    });
+  }
+
+  async saveOne(chat) {
+    if (this.useFallback) {
+      const all = JSON.parse(localStorage.getItem('clawgpt-chats') || '{}');
+      all[chat.id] = chat;
+      localStorage.setItem('clawgpt-chats', JSON.stringify(all));
+      return;
+    }
+
+    await this.init();
+    
+    return new Promise((resolve, reject) => {
+      const transaction = this.db.transaction([this.storeName], 'readwrite');
+      const store = transaction.objectStore(this.storeName);
+      store.put(chat);
+      transaction.oncomplete = () => resolve();
+      transaction.onerror = () => reject(transaction.error);
+    });
+  }
+
+  async deleteOne(chatId) {
+    if (this.useFallback) {
+      const all = JSON.parse(localStorage.getItem('clawgpt-chats') || '{}');
+      delete all[chatId];
+      localStorage.setItem('clawgpt-chats', JSON.stringify(all));
+      return;
+    }
+
+    await this.init();
+    
+    return new Promise((resolve, reject) => {
+      const transaction = this.db.transaction([this.storeName], 'readwrite');
+      const store = transaction.objectStore(this.storeName);
+      store.delete(chatId);
+      transaction.oncomplete = () => resolve();
+      transaction.onerror = () => reject(transaction.error);
+    });
+  }
+}
+
 class ClawGPT {
   // Stop words for search filtering (class constant for performance)
   static STOP_WORDS = new Set([
@@ -31,10 +175,18 @@ class ClawGPT {
     this.streaming = false;
     this.streamBuffer = '';
     this.pinnedExpanded = false;
+    this.storage = new ChatStorage();
 
     this.loadSettings();
-    this.loadChats();
     this.initUI();
+    
+    // Async initialization
+    this.init();
+  }
+  
+  async init() {
+    await this.loadChats();
+    this.renderChatList();
     this.autoConnect();
   }
 
@@ -169,16 +321,98 @@ class ClawGPT {
     return Math.ceil(text.length / 4);
   }
 
-  // Chat storage
-  loadChats() {
-    const saved = localStorage.getItem('clawgpt-chats');
-    if (saved) {
-      this.chats = JSON.parse(saved);
-    }
+  // Chat storage (IndexedDB with localStorage fallback)
+  async loadChats() {
+    this.chats = await this.storage.loadAll();
   }
 
   saveChats() {
-    localStorage.setItem('clawgpt-chats', JSON.stringify(this.chats));
+    // Fire and forget - don't await to keep UI responsive
+    this.storage.saveAll(this.chats).catch(err => {
+      console.error('Failed to save chats:', err);
+    });
+  }
+  
+  // Export all chats to a JSON file
+  exportChats() {
+    const exportData = {
+      version: 1,
+      exportedAt: new Date().toISOString(),
+      chatCount: Object.keys(this.chats).length,
+      chats: this.chats
+    };
+    
+    const blob = new Blob([JSON.stringify(exportData, null, 2)], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `clawgpt-chats-${new Date().toISOString().split('T')[0]}.json`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+    
+    this.showToast(`Exported ${exportData.chatCount} chats`);
+  }
+  
+  // Import chats from a JSON file
+  importChats(file) {
+    const reader = new FileReader();
+    
+    reader.onload = async (e) => {
+      try {
+        const data = JSON.parse(e.target.result);
+        
+        // Validate format
+        if (!data.chats || typeof data.chats !== 'object') {
+          throw new Error('Invalid file format');
+        }
+        
+        const importCount = Object.keys(data.chats).length;
+        const existingCount = Object.keys(this.chats).length;
+        
+        // Merge chats (imported chats override existing with same ID)
+        this.chats = { ...this.chats, ...data.chats };
+        
+        await this.storage.saveAll(this.chats);
+        this.renderChatList();
+        
+        const newCount = Object.keys(this.chats).length;
+        const addedCount = newCount - existingCount;
+        
+        this.showToast(`Imported ${importCount} chats (${addedCount} new)`);
+      } catch (error) {
+        console.error('Import failed:', error);
+        this.showToast('Import failed: ' + error.message, true);
+      }
+    };
+    
+    reader.onerror = () => {
+      this.showToast('Failed to read file', true);
+    };
+    
+    reader.readAsText(file);
+  }
+  
+  showToast(message, isError = false) {
+    // Remove existing toast
+    const existing = document.querySelector('.toast');
+    if (existing) existing.remove();
+    
+    const toast = document.createElement('div');
+    toast.className = `toast ${isError ? 'toast-error' : 'toast-success'}`;
+    toast.textContent = message;
+    document.body.appendChild(toast);
+    
+    // Animate in
+    requestAnimationFrame(() => toast.classList.add('show'));
+    
+    // Remove after 3s
+    setTimeout(() => {
+      toast.classList.remove('show');
+      setTimeout(() => toast.remove(), 300);
+    }, 3000);
   }
 
   // UI initialization
@@ -254,6 +488,25 @@ class ClawGPT {
     if (saveSettingsBtn) {
       saveSettingsBtn.addEventListener('click', () => this.saveAndCloseSettings());
     }
+    
+    // Export/Import buttons
+    const exportBtn = document.getElementById('exportChatsBtn');
+    const importBtn = document.getElementById('importChatsBtn');
+    const importInput = document.getElementById('importFileInput');
+    
+    if (exportBtn) {
+      exportBtn.addEventListener('click', () => this.exportChats());
+    }
+    if (importBtn && importInput) {
+      importBtn.addEventListener('click', () => importInput.click());
+      importInput.addEventListener('change', (e) => {
+        if (e.target.files && e.target.files[0]) {
+          this.importChats(e.target.files[0]);
+          e.target.value = ''; // Reset so same file can be imported again
+        }
+      });
+    }
+    
     this.elements.menuBtn.addEventListener('click', () => this.toggleSidebar());
 
     this.elements.darkMode.addEventListener('change', (e) => {
