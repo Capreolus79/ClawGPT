@@ -306,13 +306,29 @@
         
         <div class="form-group">
           <label for="setupGatewayUrl">Gateway URL</label>
-          <input type="text" id="setupGatewayUrl" value="ws://localhost:18789" placeholder="ws://localhost:18789">
+          <div class="input-with-status">
+            <input type="text" id="setupGatewayUrl" value="ws://localhost:18789" placeholder="ws://localhost:18789">
+            <span class="gateway-status" id="gatewayStatus"></span>
+          </div>
+          <span class="setting-hint" id="gatewayHint">Checking gateway...</span>
         </div>
         
         <div class="form-group">
           <label for="setupAuthToken">Auth Token</label>
           <input type="password" id="setupAuthToken" placeholder="Your OpenClaw auth token">
-          <span class="setting-hint">Find this in your OpenClaw gateway config</span>
+          <details class="token-help">
+            <summary>Where do I find this?</summary>
+            <div class="token-help-content">
+              <p>Your token is in the OpenClaw config file:</p>
+              <code class="config-path" id="configPathDisplay">~/.openclaw/config.yaml</code>
+              <p>Look for the <strong>auth.token</strong> value, or run:</p>
+              <div class="copy-command">
+                <code id="tokenCommand">grep -A1 "auth:" ~/.openclaw/config.yaml</code>
+                <button type="button" class="copy-cmd-btn" id="copyTokenCmd" title="Copy command">📋</button>
+              </div>
+              <p class="token-help-link"><a href="https://docs.openclaw.ai" target="_blank">OpenClaw Documentation →</a></p>
+            </div>
+          </details>
         </div>
         
         <div class="form-group">

@@ -2090,3 +2090,124 @@ body {
   word-break: break-all;
   color: var(--accent-color, #10a37f);
 }
+
+/* Token help dropdown */
+.token-help {
+  margin-top: 8px;
+  font-size: 13px;
+}
+
+.token-help summary {
+  cursor: pointer;
+  color: var(--accent-color, #10a37f);
+  user-select: none;
+}
+
+.token-help summary:hover {
+  text-decoration: underline;
+}
+
+.token-help-content {
+  margin-top: 12px;
+  padding: 12px;
+  background: var(--input-bg);
+  border-radius: 8px;
+}
+
+.token-help-content p {
+  margin: 0 0 8px 0;
+  color: var(--text-secondary);
+}
+
+.token-help-content .config-path {
+  display: block;
+  padding: 8px 12px;
+  background: var(--bg-color);
+  border-radius: 4px;
+  margin-bottom: 12px;
+  font-size: 12px;
+}
+
+.copy-command {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  background: var(--bg-color);
+  border-radius: 4px;
+  padding: 4px 4px 4px 12px;
+  margin-bottom: 12px;
+}
+
+.copy-command code {
+  flex: 1;
+  font-size: 11px;
+  overflow-x: auto;
+  white-space: nowrap;
+}
+
+.copy-cmd-btn {
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  padding: 6px 8px;
+  border-radius: 4px;
+  font-size: 14px;
+}
+
+.copy-cmd-btn:hover {
+  background: var(--border-color);
+}
+
+.token-help-link {
+  margin-top: 12px;
+  margin-bottom: 0 !important;
+}
+
+.token-help-link a {
+  color: var(--accent-color, #10a37f);
+  text-decoration: none;
+}
+
+.token-help-link a:hover {
+  text-decoration: underline;
+}
+
+/* Gateway status indicator */
+.input-with-status {
+  position: relative;
+  display: flex;
+  align-items: center;
+}
+
+.input-with-status input {
+  flex: 1;
+  padding-right: 36px;
+}
+
+.gateway-status {
+  position: absolute;
+  right: 12px;
+  font-size: 16px;
+}
+
+.gateway-status.checking::after {
+  content: "⏳";
+}
+
+.gateway-status.online::after {
+  content: "✓";
+  color: var(--accent-color, #10a37f);
+}
+
+.gateway-status.offline::after {
+  content: "✗";
+  color: #ef4444;
+}
+
+#gatewayHint.online {
+  color: var(--accent-color, #10a37f);
+}
+
+#gatewayHint.offline {
+  color: #ef4444;
+}

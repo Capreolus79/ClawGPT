@@ -282,6 +282,7 @@ class ClawGPT {
     const saveBtn = document.getElementById('setupSaveConfigBtn');
     const connectBtn = document.getElementById('setupConnectBtn');
     const doneBtn = document.getElementById('setupDoneBtn');
+    const copyCmd = document.getElementById('copyTokenCmd');
     
     if (saveBtn) {
       saveBtn.addEventListener('click', () => this.handleSetupSave());
@@ -291,6 +292,99 @@ class ClawGPT {
     }
     if (doneBtn) {
       doneBtn.addEventListener('click', () => this.handleSetupConnect());
+    }
+    if (copyCmd) {
+      copyCmd.addEventListener('click', () => this.copyTokenCommand());
+    }
+    
+    // Detect OS and show appropriate paths
+    this.updateConfigPaths();
+    
+    // Check gateway connection
+    this.checkGatewayConnection();
+    
+    // Re-check when URL changes
+    const urlInput = document.getElementById('setupGatewayUrl');
+    if (urlInput) {
+      let debounce;
+      urlInput.addEventListener('input', () => {
+        clearTimeout(debounce);
+        debounce = setTimeout(() => this.checkGatewayConnection(), 500);
+      });
+    }
+  }
+  
+  async checkGatewayConnection() {
+    const urlInput = document.getElementById('setupGatewayUrl');
+    const statusEl = document.getElementById('gatewayStatus');
+    const hintEl = document.getElementById('gatewayHint');
+    
+    if (!urlInput || !statusEl || !hintEl) return;
+    
+    const url = urlInput.value.trim();
+    if (!url) return;
+    
+    // Show checking state
+    statusEl.className = 'gateway-status checking';
+    hintEl.className = 'setting-hint';
+    hintEl.textContent = 'Checking gateway...';
+    
+    try {
+      const ws = new WebSocket(url);
+      const timeout = setTimeout(() => {
+        ws.close();
+        this.updateGatewayStatus('offline', 'Gateway not responding');
+      }, 3000);
+      
+      ws.onopen = () => {
+        clearTimeout(timeout);
+        ws.close();
+        this.updateGatewayStatus('online', 'Gateway found!');
+      };
+      
+      ws.onerror = () => {
+        clearTimeout(timeout);
+        this.updateGatewayStatus('offline', 'Cannot connect to gateway');
+      };
+    } catch (e) {
+      this.updateGatewayStatus('offline', 'Invalid gateway URL');
+    }
+  }
+  
+  updateGatewayStatus(status, message) {
+    const statusEl = document.getElementById('gatewayStatus');
+    const hintEl = document.getElementById('gatewayHint');
+    
+    if (statusEl) statusEl.className = `gateway-status ${status}`;
+    if (hintEl) {
+      hintEl.className = `setting-hint ${status}`;
+      hintEl.textContent = message;
+    }
+  }
+  
+  updateConfigPaths() {
+    const isWindows = navigator.platform.toLowerCase().includes('win');
+    const configPathEl = document.getElementById('configPathDisplay');
+    const tokenCmdEl = document.getElementById('tokenCommand');
+    
+    if (isWindows) {
+      if (configPathEl) configPathEl.textContent = '%USERPROFILE%\\.openclaw\\config.yaml';
+      if (tokenCmdEl) tokenCmdEl.textContent = 'type %USERPROFILE%\\.openclaw\\config.yaml | findstr "token"';
+    } else {
+      if (configPathEl) configPathEl.textContent = '~/.openclaw/config.yaml';
+      if (tokenCmdEl) tokenCmdEl.textContent = 'grep -A1 "auth:" ~/.openclaw/config.yaml';
+    }
+  }
+  
+  copyTokenCommand() {
+    const cmdEl = document.getElementById('tokenCommand');
+    const copyBtn = document.getElementById('copyTokenCmd');
+    if (cmdEl && copyBtn) {
+      navigator.clipboard.writeText(cmdEl.textContent).then(() => {
+        const original = copyBtn.textContent;
+        copyBtn.textContent = '✓';
+        setTimeout(() => copyBtn.textContent = original, 1500);
+      });
     }
   }
   
