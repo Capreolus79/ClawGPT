@@ -14,6 +14,7 @@ Or if git isn't available, download and extract the ZIP to `~/clawgpt/`.
 
 Get the gateway token from the config, then create `~/clawgpt/config.js`:
 
+**For desktop-only use:**
 ```javascript
 window.CLAWGPT_CONFIG = {
   gatewayUrl: 'ws://127.0.0.1:18789',
@@ -23,7 +24,21 @@ window.CLAWGPT_CONFIG = {
 };
 ```
 
-Replace `<GATEWAY_TOKEN>` with the actual token from `gateway.auth.token` in the OpenClaw config.
+**For desktop + mobile use (recommended):**
+```javascript
+window.CLAWGPT_CONFIG = {
+  gatewayUrl: 'ws://<LAN_IP>:18789',
+  authToken: '<GATEWAY_TOKEN>',
+  sessionKey: 'main',
+  darkMode: true
+};
+```
+
+Replace:
+- `<GATEWAY_TOKEN>` with the actual token from `gateway.auth.token` in the OpenClaw config
+- `<LAN_IP>` with the computer's local IP (get it with `hostname -I | awk '{print $1}'` on Linux or `ipconfig getifaddr en0` on macOS)
+
+**Note:** Using LAN IP allows mobile access. Also requires `gateway.bind: "lan"` in OpenClaw config.
 
 ## 3. Start the web server
 
@@ -64,26 +79,40 @@ When the user asks for mobile access to ClawGPT:
 
 ### Same network (at home)
 
-1. **Update gateway config to allow local network:**
-   ```javascript
-   // Use gateway config.patch to change bind from "loopback" to "local"
-   gateway.bind = "local"
-   ```
-
-2. **Restart ClawGPT server with network binding:**
-   ```bash
-   pkill -f "python3 -m http.server 8080"
-   cd ~/clawgpt && nohup python3 -m http.server 8080 --bind 0.0.0.0 &
-   ```
-
-3. **Get the local IP:**
+1. **Get the local IP first:**
    ```bash
    hostname -I | awk '{print $1}'  # Linux
    ipconfig getifaddr en0          # macOS
    ```
 
-4. **Tell the user:**
-   > "ClawGPT is now accessible from your phone at http://[LOCAL_IP]:8080 when you're on the same WiFi network."
+2. **Update gateway config to allow local network:**
+   ```javascript
+   // Use gateway config.patch to change bind from "loopback" to "lan"
+   gateway.bind = "lan"
+   ```
+
+3. **Update config.js to use LAN IP (CRITICAL!):**
+   Edit `~/clawgpt/config.js` and change the gatewayUrl to use the LAN IP:
+   ```javascript
+   window.CLAWGPT_CONFIG = {
+     gatewayUrl: 'ws://[LOCAL_IP]:18789',  // Use LAN IP, not 127.0.0.1!
+     authToken: '<existing-token>',
+     sessionKey: 'main',
+     darkMode: true
+   };
+   ```
+   Without this change, mobile devices won't be able to connect to the gateway.
+
+4. **Restart ClawGPT server with network binding:**
+   ```bash
+   pkill -f "python3 -m http.server 8080"
+   cd ~/clawgpt && nohup python3 -m http.server 8080 --bind 0.0.0.0 &
+   ```
+
+5. **Tell the user:**
+   > "Mobile access is ready! Open ClawGPT in your desktop browser, go to Settings → Mobile Access → Show QR Code, then scan it with your phone camera."
+   
+   ⚠️ Remind them: "Don't share the QR code — it contains your auth token."
 
 ### Remote access (away from home)
 
