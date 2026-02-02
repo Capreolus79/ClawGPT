@@ -2030,7 +2030,7 @@ Example: [0, 2, 5]`;
           <div class="message-content">${this.formatContent(msg.content)}</div>
           <div class="message-actions">
             <button class="msg-action-btn copy-btn" title="Copy">${copyIcon}</button>
-            ${!isUser ? `<button class="msg-action-btn speak-btn" title="Read aloud" data-speak-icon='${speakIcon}' data-stop-icon='${stopIcon}'>${speakIcon}</button>` : ''}
+            ${!isUser && this.ttsSupported !== false ? `<button class="msg-action-btn speak-btn" title="Read aloud" data-speak-icon='${speakIcon}' data-stop-icon='${stopIcon}'>${speakIcon}</button>` : ''}
             ${isUser ? `<button class="msg-action-btn edit-btn" title="Edit">${editIcon}</button>` : ''}
             ${isLastAssistant ? `<button class="msg-action-btn regen-btn" title="Regenerate">${regenIcon}</button>` : ''}
           </div>
@@ -2675,7 +2675,20 @@ Example: [0, 2, 5]`;
     this.voices = speechSynthesis.getVoices();
     console.log('TTS voices loaded:', this.voices.length);
     
-    if (this.voices.length === 0) return;
+    // Hide speak buttons if no voices available
+    if (this.voices.length === 0) {
+      document.querySelectorAll('.speak-btn').forEach(btn => {
+        btn.style.display = 'none';
+      });
+      this.ttsSupported = false;
+      return;
+    }
+    
+    // Show speak buttons if voices become available
+    document.querySelectorAll('.speak-btn').forEach(btn => {
+      btn.style.display = '';
+    });
+    this.ttsSupported = true;
     
     // Log available voices for debugging
     console.log('Available voices:', this.voices.map(v => `${v.name} (${v.lang})`).slice(0, 10));
