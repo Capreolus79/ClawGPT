@@ -483,6 +483,9 @@ class ClawGPT {
     // Voice input button
     this.initVoiceInput();
     
+    // Text-to-speech
+    this.initSpeechSynthesis();
+    
     this.elements.settingsBtn.addEventListener('click', () => this.openSettings());
     this.elements.closeSettings.addEventListener('click', () => this.closeSettings());
     this.elements.connectBtn.addEventListener('click', () => this.connect());
@@ -2013,6 +2016,8 @@ Example: [0, 2, 5]`;
       const isUser = msg.role === 'user';
       const isLastAssistant = !isUser && displayIdx === visibleMessages.length - 1;
       const copyIcon = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>`;
+      const speakIcon = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/><path d="M15.54 8.46a5 5 0 0 1 0 7.07"/><path d="M19.07 4.93a10 10 0 0 1 0 14.14"/></svg>`;
+      const stopIcon = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="6" y="6" width="12" height="12" rx="2"/></svg>`;
       const editIcon = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>`;
       const regenIcon = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 2v6h-6"/><path d="M3 12a9 9 0 0 1 15-6.7L21 8"/><path d="M3 22v-6h6"/><path d="M21 12a9 9 0 0 1-15 6.7L3 16"/></svg>`;
       
@@ -2025,6 +2030,7 @@ Example: [0, 2, 5]`;
           <div class="message-content">${this.formatContent(msg.content)}</div>
           <div class="message-actions">
             <button class="msg-action-btn copy-btn" title="Copy">${copyIcon}</button>
+            ${!isUser ? `<button class="msg-action-btn speak-btn" title="Read aloud" data-speak-icon='${speakIcon}' data-stop-icon='${stopIcon}'>${speakIcon}</button>` : ''}
             ${isUser ? `<button class="msg-action-btn edit-btn" title="Edit">${editIcon}</button>` : ''}
             ${isLastAssistant ? `<button class="msg-action-btn regen-btn" title="Regenerate">${regenIcon}</button>` : ''}
           </div>
@@ -2087,6 +2093,15 @@ Example: [0, 2, 5]`;
     this.elements.messages.querySelectorAll('.regen-btn').forEach(btn => {
       btn.addEventListener('click', () => {
         this.regenerateResponse();
+      });
+    });
+    
+    // Speak buttons (AI messages)
+    this.elements.messages.querySelectorAll('.speak-btn').forEach(btn => {
+      btn.addEventListener('click', (e) => {
+        const msgEl = e.target.closest('.message');
+        const content = msgEl.querySelector('.message-content').textContent;
+        this.toggleSpeech(btn, content);
       });
     });
   }
@@ -2636,6 +2651,103 @@ Example: [0, 2, 5]`;
         console.log('Recognition already started');
       }
     }
+  }
+  
+  // Text-to-Speech
+  initSpeechSynthesis() {
+    if (!('speechSynthesis' in window)) {
+      this.ttsSupported = false;
+      return;
+    }
+    
+    this.ttsSupported = true;
+    this.currentSpeakBtn = null;
+    
+    // Load voices (may be async)
+    this.loadVoices();
+    if (speechSynthesis.onvoiceschanged !== undefined) {
+      speechSynthesis.onvoiceschanged = () => this.loadVoices();
+    }
+  }
+  
+  loadVoices() {
+    const voices = speechSynthesis.getVoices();
+    
+    // Prefer Google UK English Female, then any UK female, then any English
+    this.preferredVoice = 
+      voices.find(v => v.name === 'Google UK English Female') ||
+      voices.find(v => v.name.includes('UK') && v.name.includes('Female')) ||
+      voices.find(v => v.lang.startsWith('en-GB')) ||
+      voices.find(v => v.lang.startsWith('en')) ||
+      voices[0];
+    
+    if (this.preferredVoice) {
+      console.log('TTS voice:', this.preferredVoice.name);
+    }
+  }
+  
+  toggleSpeech(btn, text) {
+    if (!this.ttsSupported) {
+      this.showToast('Text-to-speech not supported', true);
+      return;
+    }
+    
+    const speakIcon = btn.dataset.speakIcon;
+    const stopIcon = btn.dataset.stopIcon;
+    
+    // If already speaking this message, stop it
+    if (this.currentSpeakBtn === btn && speechSynthesis.speaking) {
+      speechSynthesis.cancel();
+      btn.innerHTML = speakIcon;
+      btn.classList.remove('speaking');
+      btn.title = 'Read aloud';
+      this.currentSpeakBtn = null;
+      return;
+    }
+    
+    // Stop any current speech
+    if (speechSynthesis.speaking) {
+      speechSynthesis.cancel();
+      if (this.currentSpeakBtn) {
+        this.currentSpeakBtn.innerHTML = this.currentSpeakBtn.dataset.speakIcon;
+        this.currentSpeakBtn.classList.remove('speaking');
+        this.currentSpeakBtn.title = 'Read aloud';
+      }
+    }
+    
+    // Start speaking
+    const utterance = new SpeechSynthesisUtterance(text);
+    if (this.preferredVoice) {
+      utterance.voice = this.preferredVoice;
+    }
+    utterance.rate = 1.0;
+    utterance.pitch = 1.0;
+    
+    utterance.onstart = () => {
+      btn.innerHTML = stopIcon;
+      btn.classList.add('speaking');
+      btn.title = 'Stop reading';
+      this.currentSpeakBtn = btn;
+    };
+    
+    utterance.onend = () => {
+      btn.innerHTML = speakIcon;
+      btn.classList.remove('speaking');
+      btn.title = 'Read aloud';
+      this.currentSpeakBtn = null;
+    };
+    
+    utterance.onerror = (e) => {
+      if (e.error !== 'interrupted') {
+        console.error('Speech error:', e.error);
+      }
+      btn.innerHTML = speakIcon;
+      btn.classList.remove('speaking');
+      btn.title = 'Read aloud';
+      this.currentSpeakBtn = null;
+    };
+    
+    speechSynthesis.speak(utterance);
   }
 
   scrollToBottom() {

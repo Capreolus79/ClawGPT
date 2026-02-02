@@ -489,6 +489,20 @@ body {
   color: var(--accent-color);
 }
 
+.msg-action-btn.speak-btn:hover {
+  color: #8b5cf6;
+}
+
+.msg-action-btn.speak-btn.speaking {
+  color: #8b5cf6;
+  animation: pulse-speaking 1s ease-in-out infinite;
+}
+
+@keyframes pulse-speaking {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.5; }
+}
+
 .msg-action-btn.edit-btn:hover {
   color: #818cf8;
 }
