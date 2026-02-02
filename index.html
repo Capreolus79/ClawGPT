@@ -51,7 +51,10 @@
           </svg>
         </button>
         <h1 class="title">ClawGPT</h1>
-        <div class="chat-tokens" id="chatTokens" title="Estimated tokens in this conversation"></div>
+        <div class="header-info">
+          <div class="chat-model" id="chatModel" title="Current model"></div>
+          <div class="chat-tokens" id="chatTokens" title="Estimated tokens in this conversation"></div>
+        </div>
         <div class="status" id="status">Disconnected</div>
       </header>
 
@@ -173,6 +176,69 @@
         <div class="settings-actions">
           <button class="save-btn" id="saveSettingsBtn">Save</button>
           <button class="connect-btn" id="connectBtn">Connect</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Regenerate Modal -->
+  <div class="modal" id="regenerateModal">
+    <div class="modal-content modal-small">
+      <div class="modal-header">
+        <h2>Regenerate Response</h2>
+        <button class="close-btn" id="closeRegenerate">&times;</button>
+      </div>
+      <div class="modal-body">
+        <div class="form-group">
+          <label for="regenerateModelSelect">Model</label>
+          <select id="regenerateModelSelect">
+            <option value="">Current model</option>
+          </select>
+        </div>
+        <div class="settings-actions">
+          <button class="cancel-btn" id="cancelRegenerateBtn">Cancel</button>
+          <button class="save-btn" id="confirmRegenerateBtn">Regenerate</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Edit Message Modal -->
+  <div class="modal" id="editMessageModal">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h2>Edit Message</h2>
+        <button class="close-btn" id="closeEditMessage">&times;</button>
+      </div>
+      <div class="modal-body">
+        <div class="form-group">
+          <label for="editMessageInput">Message</label>
+          <textarea id="editMessageInput" rows="4" placeholder="Enter your message"></textarea>
+        </div>
+        <p class="branch-hint">This will create a new branched chat, keeping the original intact. (Ctrl+Enter to send)</p>
+        <div class="settings-actions">
+          <button class="cancel-btn" id="cancelEditMessageBtn">Cancel</button>
+          <button class="save-btn" id="saveEditMessageBtn">Branch & Send</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Rename Chat Modal -->
+  <div class="modal" id="renameModal">
+    <div class="modal-content modal-small">
+      <div class="modal-header">
+        <h2>Rename Chat</h2>
+        <button class="close-btn" id="closeRename">&times;</button>
+      </div>
+      <div class="modal-body">
+        <div class="form-group">
+          <label for="renameChatInput">Chat Name</label>
+          <input type="text" id="renameChatInput" placeholder="Enter new name">
+        </div>
+        <div class="settings-actions">
+          <button class="cancel-btn" id="cancelRenameBtn">Cancel</button>
+          <button class="save-btn" id="saveRenameBtn">Save</button>
         </div>
       </div>
     </div>

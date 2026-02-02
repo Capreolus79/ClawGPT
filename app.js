@@ -100,6 +100,35 @@ class ClawGPT {
   
   updateTokenDisplay() {
     this.updateChatTokens();
+    this.updateModelDisplay();
+  }
+  
+  updateModelDisplay() {
+    const chatModelEl = document.getElementById('chatModel');
+    if (!chatModelEl) return;
+    
+    const chat = this.currentChatId ? this.chats[this.currentChatId] : null;
+    
+    // Use chat-specific model if set, otherwise use session default
+    const modelId = chat?.model || this.currentModelId;
+    
+    if (!modelId) {
+      chatModelEl.classList.remove('visible');
+      return;
+    }
+    
+    // Get friendly name
+    const model = this.allModels?.find(m => m.id === modelId);
+    let displayName = model?.name || modelId;
+    
+    // Shorten common prefixes
+    displayName = displayName
+      .replace('Claude ', '')
+      .replace(' (latest)', '');
+    
+    chatModelEl.textContent = displayName;
+    chatModelEl.title = modelId;
+    chatModelEl.classList.add('visible');
   }
   
   updateChatTokens() {
@@ -176,8 +205,26 @@ class ClawGPT {
       gatewayUrl: document.getElementById('gatewayUrl'),
       authToken: document.getElementById('authToken'),
       sessionKeyInput: document.getElementById('sessionKey'),
-      darkMode: document.getElementById('darkMode')
+      darkMode: document.getElementById('darkMode'),
+      renameModal: document.getElementById('renameModal'),
+      closeRename: document.getElementById('closeRename'),
+      cancelRenameBtn: document.getElementById('cancelRenameBtn'),
+      saveRenameBtn: document.getElementById('saveRenameBtn'),
+      renameChatInput: document.getElementById('renameChatInput'),
+      editMessageModal: document.getElementById('editMessageModal'),
+      closeEditMessage: document.getElementById('closeEditMessage'),
+      cancelEditMessageBtn: document.getElementById('cancelEditMessageBtn'),
+      saveEditMessageBtn: document.getElementById('saveEditMessageBtn'),
+      editMessageInput: document.getElementById('editMessageInput'),
+      regenerateModal: document.getElementById('regenerateModal'),
+      closeRegenerate: document.getElementById('closeRegenerate'),
+      cancelRegenerateBtn: document.getElementById('cancelRegenerateBtn'),
+      confirmRegenerateBtn: document.getElementById('confirmRegenerateBtn'),
+      regenerateModelSelect: document.getElementById('regenerateModelSelect')
     };
+    
+    // Models list (fetched on connect)
+    this.availableModels = [];
 
     // Apply settings to UI
     this.elements.gatewayUrl.value = this.gatewayUrl;
@@ -267,6 +314,60 @@ class ClawGPT {
     this.elements.settingsModal.addEventListener('click', (e) => {
       if (e.target === this.elements.settingsModal) {
         this.closeSettings();
+      }
+    });
+
+    // Rename modal event listeners
+    this.elements.closeRename.addEventListener('click', () => this.closeRenameModal());
+    this.elements.cancelRenameBtn.addEventListener('click', () => this.closeRenameModal());
+    this.elements.saveRenameBtn.addEventListener('click', () => this.saveRename());
+    this.elements.renameChatInput.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') {
+        e.preventDefault();
+        this.saveRename();
+      } else if (e.key === 'Escape') {
+        this.closeRenameModal();
+      }
+    });
+    this.elements.renameModal.addEventListener('click', (e) => {
+      if (e.target === this.elements.renameModal) {
+        this.closeRenameModal();
+      }
+    });
+
+    // Edit message modal event listeners
+    this.elements.closeEditMessage.addEventListener('click', () => this.closeEditMessageModal());
+    this.elements.cancelEditMessageBtn.addEventListener('click', () => this.closeEditMessageModal());
+    this.elements.saveEditMessageBtn.addEventListener('click', () => this.saveEditMessage());
+    this.elements.editMessageInput.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) {
+        e.preventDefault();
+        this.saveEditMessage();
+      } else if (e.key === 'Escape') {
+        this.closeEditMessageModal();
+      }
+    });
+    this.elements.editMessageModal.addEventListener('click', (e) => {
+      if (e.target === this.elements.editMessageModal) {
+        this.closeEditMessageModal();
+      }
+    });
+
+    // Regenerate modal event listeners
+    this.elements.closeRegenerate.addEventListener('click', () => this.closeRegenerateModal());
+    this.elements.cancelRegenerateBtn.addEventListener('click', () => this.closeRegenerateModal());
+    this.elements.confirmRegenerateBtn.addEventListener('click', () => this.confirmRegenerate());
+    this.elements.regenerateModelSelect.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') {
+        e.preventDefault();
+        this.confirmRegenerate();
+      } else if (e.key === 'Escape') {
+        this.closeRegenerateModal();
+      }
+    });
+    this.elements.regenerateModal.addEventListener('click', (e) => {
+      if (e.target === this.elements.regenerateModal) {
+        this.closeRegenerateModal();
       }
     });
 
@@ -1078,6 +1179,7 @@ Example: [0, 2, 5]`;
         this.onInputChange();
         this.loadHistory();
         this.updateSettingsButtons();
+        this.fetchModels();
       }
       return;
     }
@@ -1257,7 +1359,7 @@ Example: [0, 2, 5]`;
     this.elements.welcome.style.display = 'flex';
     this.renderMessages();
     this.renderChatList();
-    this.updateChatTokens();
+    this.updateTokenDisplay();
     this.elements.messageInput.focus();
     this.elements.sidebar.classList.remove('open');
   }
@@ -1271,6 +1373,7 @@ Example: [0, 2, 5]`;
     this.currentChatId = chatId;
     this.renderMessages();
     this.renderChatList();
+    this.updateTokenDisplay(); // Also updates model display
     this.elements.sidebar.classList.remove('open');
   }
 
@@ -1382,9 +1485,55 @@ Example: [0, 2, 5]`;
     const pinnedChats = allChats
       .filter(([_, c]) => c.pinned)
       .sort((a, b) => (a[1].pinnedOrder || 0) - (b[1].pinnedOrder || 0));
-    const unpinnedChats = allChats
-      .filter(([_, c]) => !c.pinned)
-      .sort((a, b) => (b[1].updatedAt || 0) - (a[1].updatedAt || 0));
+    
+    // For unpinned: group branches with their parents
+    const unpinnedRaw = allChats.filter(([_, c]) => !c.pinned);
+    
+    // Find the root ancestor for any chat
+    const getRootId = (chatId) => {
+      const chat = this.chats[chatId];
+      if (!chat || !chat.parentId || !this.chats[chat.parentId]) return chatId;
+      return getRootId(chat.parentId);
+    };
+    
+    // Find root chats (no parent, or parent doesn't exist)
+    const rootChats = unpinnedRaw.filter(([_, c]) => !c.parentId || !this.chats[c.parentId]);
+    // Find branch chats (have a valid parent)
+    const branchChats = unpinnedRaw.filter(([_, c]) => c.parentId && this.chats[c.parentId]);
+    
+    // Group ALL branches by their ROOT ancestor (not just direct parent)
+    const branchesByRoot = {};
+    branchChats.forEach(([id, chat]) => {
+      const rootId = getRootId(id);
+      if (!branchesByRoot[rootId]) {
+        branchesByRoot[rootId] = [];
+      }
+      branchesByRoot[rootId].push([id, chat]);
+    });
+    
+    // Sort branches within each group by creation time
+    Object.values(branchesByRoot).forEach(branches => {
+      branches.sort((a, b) => (a[1].createdAt || 0) - (b[1].createdAt || 0));
+    });
+    
+    // Sort root chats by most recent activity (including all their descendants)
+    const getRootActivity = (rootId, rootChat) => {
+      const branches = branchesByRoot[rootId] || [];
+      const branchTimes = branches.map(([_, c]) => c.updatedAt || 0);
+      return Math.max(rootChat.updatedAt || 0, ...branchTimes);
+    };
+    
+    rootChats.sort((a, b) => getRootActivity(b[0], b[1]) - getRootActivity(a[0], a[1]));
+    
+    // Build unpinned list with branches following their root ancestors
+    const unpinnedChats = [];
+    rootChats.forEach(([id, chat]) => {
+      unpinnedChats.push([id, chat, false]); // false = not a branch
+      const branches = branchesByRoot[id] || [];
+      branches.forEach(([branchId, branchChat]) => {
+        unpinnedChats.push([branchId, branchChat, true]); // true = is a branch
+      });
+    });
 
     let html = '';
 
@@ -1423,8 +1572,8 @@ Example: [0, 2, 5]`;
       if (pinnedChats.length > 0) {
         html += '<div class="section-header">Recent</div>';
       }
-      unpinnedChats.forEach(([id, chat]) => {
-        html += this.renderChatItem(id, chat, false);
+      unpinnedChats.forEach(([id, chat, isBranch]) => {
+        html += this.renderChatItem(id, chat, false, isBranch);
       });
     }
 
@@ -1435,7 +1584,7 @@ Example: [0, 2, 5]`;
       const chatId = item.dataset.id;
       
       item.addEventListener('click', (e) => {
-        if (e.target.closest('.pin-btn') || e.target.closest('.delete-btn')) return;
+        if (e.target.closest('.pin-btn') || e.target.closest('.delete-btn') || e.target.closest('.rename-btn')) return;
         this.selectChat(chatId);
       });
 
@@ -1459,6 +1608,14 @@ Example: [0, 2, 5]`;
         this.togglePin(btn.dataset.id);
       });
     });
+    
+    this.elements.chatList.querySelectorAll('.rename-btn').forEach(btn => {
+      btn.addEventListener('click', (e) => {
+        console.log('Rename btn clicked, dataset.id:', btn.dataset.id);
+        e.stopPropagation();
+        this.renameChat(btn.dataset.id);
+      });
+    });
 
     const expandBtn = document.getElementById('expandPinnedBtn');
     if (expandBtn) {
@@ -1469,7 +1626,7 @@ Example: [0, 2, 5]`;
     }
   }
 
-  renderChatItem(id, chat, isPinned) {
+  renderChatItem(id, chat, isPinned, isBranch = false) {
     const isActive = id === this.currentChatId;
     const pinTitle = isPinned ? 'Unpin' : 'Pin';
     const hasSummary = chat.metadata?.summary;
@@ -1477,17 +1634,75 @@ Example: [0, 2, 5]`;
       <line x1="12" y1="17" x2="12" y2="22"/>
       <path d="M5 17h14v-1.76a2 2 0 0 0-1.11-1.79l-1.78-.9A2 2 0 0 1 15 10.76V6h1a2 2 0 0 0 0-4H8a2 2 0 0 0 0 4h1v4.76a2 2 0 0 1-1.11 1.79l-1.78.9A2 2 0 0 0 5 15.24Z"/>
     </svg>`;
+    const editIcon = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+      <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/>
+      <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/>
+    </svg>`;
+    const branchIcon = `<svg class="branch-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+      <line x1="6" y1="3" x2="6" y2="15"/>
+      <circle cx="18" cy="6" r="3"/>
+      <circle cx="6" cy="18" r="3"/>
+      <path d="M18 9a9 9 0 0 1-9 9"/>
+    </svg>`;
     const summaryIndicator = hasSummary ? `<span class="summary-indicator" title="${this.escapeHtml(chat.metadata.summary)}">✨</span>` : '';
+    const branchIndicator = isBranch ? `<span class="branch-indicator">${branchIcon}</span>` : '';
     
     return `
-      <div class="chat-item ${isActive ? 'active' : ''} ${isPinned ? 'pinned' : ''}" data-id="${id}" data-pinned="${isPinned}" draggable="true">
-        <span class="chat-title">${summaryIndicator}${this.escapeHtml(chat.title)}</span>
+      <div class="chat-item ${isActive ? 'active' : ''} ${isPinned ? 'pinned' : ''} ${isBranch ? 'branch' : ''}" data-id="${id}" data-pinned="${isPinned}" draggable="true">
+        <span class="chat-title">${branchIndicator}${summaryIndicator}${this.escapeHtml(chat.title)}</span>
         <div class="chat-actions">
+          <button class="rename-btn" data-id="${id}" title="Rename">${editIcon}</button>
           <button class="pin-btn" data-id="${id}" title="${pinTitle}">${pinIcon}</button>
-          <button class="delete-btn" data-id="${id}">&times;</button>
+          <button class="delete-btn" data-id="${id}" title="Delete">&times;</button>
         </div>
       </div>
     `;
+  }
+  
+  renameChat(chatId) {
+    console.log('renameChat called with:', chatId);
+    const chat = this.chats[chatId];
+    if (!chat) {
+      console.log('Chat not found:', chatId);
+      return;
+    }
+    
+    // Store the chatId for the save handler
+    this.renamingChatId = chatId;
+    
+    // Show the rename modal
+    const modal = document.getElementById('renameModal');
+    const input = document.getElementById('renameChatInput');
+    input.value = chat.title;
+    modal.classList.add('open');
+    
+    // Focus and select the input text
+    setTimeout(() => {
+      input.focus();
+      input.select();
+    }, 50);
+  }
+  
+  saveRename() {
+    const input = document.getElementById('renameChatInput');
+    const newTitle = input.value.trim();
+    
+    if (newTitle && this.renamingChatId) {
+      const chat = this.chats[this.renamingChatId];
+      if (chat) {
+        chat.title = newTitle;
+        this.saveChats();
+        this.renderChatList();
+      }
+    }
+    
+    this.closeRenameModal();
+  }
+  
+  closeRenameModal() {
+    const modal = document.getElementById('renameModal');
+    modal.classList.remove('open');
+    this.renamingChatId = null;
   }
 
   renderMessages() {
@@ -1502,21 +1717,34 @@ Example: [0, 2, 5]`;
 
     this.elements.welcome.style.display = 'none';
 
-    this.elements.messages.innerHTML = chat.messages.map(msg => {
+    this.elements.messages.innerHTML = chat.messages.map((msg, idx) => {
       const isUser = msg.role === 'user';
+      const isLastAssistant = !isUser && idx === chat.messages.length - 1;
+      const copyIcon = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>`;
+      const editIcon = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>`;
+      const regenIcon = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 2v6h-6"/><path d="M3 12a9 9 0 0 1 15-6.7L21 8"/><path d="M3 22v-6h6"/><path d="M21 12a9 9 0 0 1-15 6.7L3 16"/></svg>`;
+      
       return `
-        <div class="message ${msg.role}">
+        <div class="message ${msg.role}" data-idx="${idx}">
           <div class="message-header">
             <div class="avatar ${msg.role}">${isUser ? 'You' : 'AI'}</div>
             <span class="message-role">${isUser ? 'You' : 'ClawGPT'}</span>
+            <div class="message-actions">
+              <button class="msg-action-btn copy-btn" title="Copy">${copyIcon}</button>
+              ${isUser ? `<button class="msg-action-btn edit-btn" title="Edit">${editIcon}</button>` : ''}
+              ${isLastAssistant ? `<button class="msg-action-btn regen-btn" title="Regenerate">${regenIcon}</button>` : ''}
+            </div>
           </div>
           <div class="message-content">${this.formatContent(msg.content)}</div>
         </div>
       `;
     }).join('');
     
+    // Add message action handlers
+    this.attachMessageActions();
+    
     // Update conversation token total
-    this.updateChatTokens();
+    this.updateTokenDisplay();
 
     // Add streaming indicator if needed
     if (this.streaming) {
@@ -1534,6 +1762,405 @@ Example: [0, 2, 5]`;
     }
 
     this.scrollToBottom();
+  }
+  
+  attachMessageActions() {
+    // Copy buttons
+    this.elements.messages.querySelectorAll('.copy-btn').forEach(btn => {
+      btn.addEventListener('click', (e) => {
+        const msgEl = e.target.closest('.message');
+        const content = msgEl.querySelector('.message-content').textContent;
+        navigator.clipboard.writeText(content).then(() => {
+          btn.classList.add('copied');
+          btn.innerHTML = '✓';
+          setTimeout(() => {
+            btn.classList.remove('copied');
+            btn.innerHTML = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>`;
+          }, 1500);
+        });
+      });
+    });
+    
+    // Edit buttons (user messages only)
+    this.elements.messages.querySelectorAll('.edit-btn').forEach(btn => {
+      btn.addEventListener('click', (e) => {
+        const msgEl = e.target.closest('.message');
+        const idx = parseInt(msgEl.dataset.idx);
+        this.editMessage(idx);
+      });
+    });
+    
+    // Regenerate button (last AI message only)
+    this.elements.messages.querySelectorAll('.regen-btn').forEach(btn => {
+      btn.addEventListener('click', () => {
+        this.regenerateResponse();
+      });
+    });
+  }
+  
+  editMessage(idx) {
+    const chat = this.chats[this.currentChatId];
+    if (!chat || !chat.messages[idx]) return;
+    
+    const msg = chat.messages[idx];
+    if (msg.role !== 'user') return;
+    
+    // Store edit context for the save handler
+    this.editingMessageIdx = idx;
+    this.editingChatId = this.currentChatId;
+    
+    // Show the edit modal
+    const modal = this.elements.editMessageModal;
+    const input = this.elements.editMessageInput;
+    input.value = msg.content;
+    modal.classList.add('open');
+    
+    // Focus and select the input text
+    setTimeout(() => {
+      input.focus();
+      input.select();
+    }, 50);
+  }
+  
+  saveEditMessage() {
+    const input = this.elements.editMessageInput;
+    const newContent = input.value.trim();
+    
+    if (!newContent || this.editingMessageIdx === null || !this.editingChatId) {
+      this.closeEditMessageModal();
+      return;
+    }
+    
+    const originalChat = this.chats[this.editingChatId];
+    if (!originalChat) {
+      this.closeEditMessageModal();
+      return;
+    }
+    
+    // Find the root chat (follow parent chain to top)
+    const getRootChat = (chatId) => {
+      const chat = this.chats[chatId];
+      if (!chat || !chat.parentId || !this.chats[chat.parentId]) return chat;
+      return getRootChat(chat.parentId);
+    };
+    const rootChat = getRootChat(this.editingChatId);
+    
+    // Count existing branches from this root
+    const rootId = rootChat?.id || this.editingChatId;
+    const existingBranches = Object.values(this.chats).filter(c => {
+      if (!c.parentId) return false;
+      // Check if this chat's root is our root
+      const itsRoot = getRootChat(c.id);
+      return itsRoot?.id === rootId;
+    });
+    const branchNumber = existingBranches.length + 1;
+    
+    // Create a new branched chat
+    const branchId = this.generateId();
+    const rootTitle = rootChat?.title || originalChat.title;
+    const branchTitle = `Branch ${branchNumber}: ${rootTitle}`;
+    
+    // Copy messages up to (but not including) the edited message
+    const messagesBeforeEdit = originalChat.messages.slice(0, this.editingMessageIdx);
+    
+    // Add the new edited message
+    const editedMessage = {
+      role: 'user',
+      content: newContent
+    };
+    
+    // Create the branched chat with parent reference
+    this.chats[branchId] = {
+      id: branchId,
+      title: branchTitle,
+      messages: [...messagesBeforeEdit, editedMessage],
+      createdAt: Date.now(),
+      updatedAt: Date.now(),
+      pinned: false,
+      parentId: this.editingChatId
+    };
+    
+    this.saveChats();
+    this.closeEditMessageModal();
+    
+    // Switch to the branched chat
+    this.selectChat(branchId);
+    
+    // Send to get new response
+    this.resendLastUserMessage();
+  }
+  
+  closeEditMessageModal() {
+    this.elements.editMessageModal.classList.remove('open');
+    this.editingMessageIdx = null;
+    this.editingChatId = null;
+  }
+  
+  regenerateResponse() {
+    const chat = this.chats[this.currentChatId];
+    if (!chat || chat.messages.length < 2) return;
+    
+    const lastMsg = chat.messages[chat.messages.length - 1];
+    if (lastMsg.role !== 'assistant') return;
+    
+    // If we have models available, show the modal
+    const availableModels = this.getAvailableModels();
+    if (availableModels.length > 0) {
+      this.showRegenerateModal();
+    } else {
+      // No models loaded, just regenerate with current model
+      this.doRegenerate(null);
+    }
+  }
+  
+  showRegenerateModal() {
+    // Populate the model dropdown with filtered models
+    const select = this.elements.regenerateModelSelect;
+    const currentLabel = this.currentModelId ? `Current (${this.currentModelId})` : 'Current model';
+    select.innerHTML = `<option value="">${currentLabel}</option>`;
+    
+    const availableModels = this.getAvailableModels();
+    availableModels.forEach(model => {
+      const option = document.createElement('option');
+      option.value = model.id;
+      
+      // Clean up the name - remove "(latest)" suffix since we're only showing latest
+      let label = (model.name || model.id).replace(' (latest)', '');
+      
+      // Add description
+      const desc = this.getModelDescription(model.id);
+      if (desc) label += ` — ${desc}`;
+      
+      // Add reasoning indicator
+      if (model.reasoning) label += ' ⚡';
+      
+      option.textContent = label;
+      select.appendChild(option);
+    });
+    
+    this.elements.regenerateModal.classList.add('open');
+    select.focus();
+  }
+  
+  closeRegenerateModal() {
+    this.elements.regenerateModal.classList.remove('open');
+  }
+  
+  async confirmRegenerate() {
+    const selectedModel = this.elements.regenerateModelSelect.value;
+    this.closeRegenerateModal();
+    await this.doRegenerate(selectedModel || null);
+  }
+  
+  async doRegenerate(modelId) {
+    const chat = this.chats[this.currentChatId];
+    if (!chat || chat.messages.length < 2) return;
+    
+    const lastMsg = chat.messages[chat.messages.length - 1];
+    if (lastMsg.role !== 'assistant') return;
+    
+    // If a different model was selected, switch via /model command
+    let switchedModel = null;
+    if (modelId) {
+      try {
+        // Find the model to get its provider (prefer anthropic for Claude, openai for GPT)
+        const models = this.allModels?.filter(m => m.id === modelId) || [];
+        let model = models.find(m => m.provider === 'anthropic') 
+                 || models.find(m => m.provider === 'openai')
+                 || models[0];
+        
+        const fullModelId = model ? `${model.provider}/${modelId}` : modelId;
+        
+        console.log('Switching model via /model command:', fullModelId);
+        
+        // Send /model command to switch (this doesn't require admin scope)
+        await this.request('chat.send', {
+          sessionKey: this.sessionKey,
+          message: `/model ${fullModelId}`,
+          deliver: false,
+          idempotencyKey: 'model-switch-' + this.generateId()
+        });
+        
+        // Wait a moment for the model switch to take effect
+        await new Promise(resolve => setTimeout(resolve, 500));
+        
+        switchedModel = model?.name || modelId;
+        console.log('Switched to model:', fullModelId);
+      } catch (error) {
+        console.error('Failed to set model:', error);
+        // Continue anyway - might work with current model
+      }
+    }
+    
+    // Create a branch to preserve the original response
+    const branchId = this.generateId();
+    
+    // Find the root chat for naming
+    const getRootChat = (chatId) => {
+      const c = this.chats[chatId];
+      if (!c || !c.parentId || !this.chats[c.parentId]) return c;
+      return getRootChat(c.parentId);
+    };
+    const rootChat = getRootChat(this.currentChatId);
+    const rootId = rootChat?.id || this.currentChatId;
+    
+    // Count existing regens for this root
+    const existingRegens = Object.values(this.chats).filter(c => {
+      if (!c.parentId || !c.isRegen) return false;
+      const itsRoot = getRootChat(c.id);
+      return itsRoot?.id === rootId;
+    });
+    const regenNumber = existingRegens.length + 1;
+    
+    // Create regen title - mention model if switched
+    const rootTitle = rootChat?.title || chat.title;
+    let branchTitle = `Regen ${regenNumber}: ${rootTitle}`;
+    if (switchedModel) {
+      branchTitle = `Regen ${regenNumber} (${switchedModel}): ${rootTitle}`;
+    }
+    
+    // Copy messages WITHOUT the last assistant message
+    const messagesWithoutLast = chat.messages.slice(0, -1);
+    
+    // Create the regen chat
+    this.chats[branchId] = {
+      id: branchId,
+      title: branchTitle,
+      messages: [...messagesWithoutLast],
+      createdAt: Date.now(),
+      updatedAt: Date.now(),
+      pinned: false,
+      parentId: this.currentChatId,
+      isRegen: true, // Flag to distinguish from edit branches
+      model: modelId || chat.model || this.currentModelId // Track model used
+    };
+    
+    this.saveChats();
+    
+    // Switch to the branched chat
+    this.selectChat(branchId);
+    
+    // Re-send to get new response (with regenerate flag to branch server-side session)
+    this.resendLastUserMessage({ regenerate: true });
+  }
+  
+  async fetchModels() {
+    try {
+      const result = await this.request('models.list', {});
+      if (result?.models) {
+        this.allModels = result.models;
+        console.log('Loaded', this.allModels.length, 'models');
+      }
+      
+      // Also get current session info to know what model family we're using
+      const status = await this.request('status', {});
+      if (status?.sessions?.defaults?.model) {
+        this.currentModelId = status.sessions.defaults.model;
+        this.currentModelFamily = this.detectModelFamily(this.currentModelId);
+        console.log('Current model:', this.currentModelId, 'Family:', this.currentModelFamily);
+      }
+    } catch (error) {
+      console.error('Failed to fetch models:', error);
+      this.allModels = [];
+    }
+  }
+  
+  detectModelFamily(modelId) {
+    // Detect model family from model ID patterns
+    const id = modelId.toLowerCase();
+    if (id.includes('claude')) return 'claude';
+    if (id.includes('gpt-4') || id.includes('gpt-5')) return 'gpt';
+    if (id.includes('o1') || id.includes('o3') || id.includes('o4')) return 'openai-reasoning';
+    if (id.includes('gemini')) return 'gemini';
+    if (id.includes('llama')) return 'llama';
+    if (id.includes('mistral') || id.includes('codestral')) return 'mistral';
+    if (id.includes('deepseek')) return 'deepseek';
+    if (id.includes('qwen')) return 'qwen';
+    return null;
+  }
+  
+  getAvailableModels() {
+    if (!this.allModels) return [];
+    
+    // Detect the model family from current model
+    const family = this.detectModelFamily(this.currentModelId);
+    if (!family) return this.allModels.slice(0, 20); // Fallback: show first 20
+    
+    // Filter to only models from the same family AND from anthropic provider for Claude
+    // (to avoid duplicate entries from openrouter, opencode, etc.)
+    let familyModels = this.allModels.filter(m => {
+      const modelFamily = this.detectModelFamily(m.id);
+      if (modelFamily !== family) return false;
+      
+      // For Claude models, prefer the "anthropic" provider to avoid duplicates
+      if (family === 'claude') {
+        return m.provider === 'anthropic';
+      }
+      // For GPT models, prefer "openai" provider
+      if (family === 'gpt' || family === 'openai-reasoning') {
+        return m.provider === 'openai';
+      }
+      // For others, allow any provider but dedupe by ID
+      return true;
+    });
+    
+    // Filter out deprecated/old models - keep only current generation
+    if (family === 'claude') {
+      familyModels = familyModels.filter(m => {
+        const id = m.id.toLowerCase();
+        // Skip: 3.x models (deprecated)
+        if (id.includes('claude-3-') || id.includes('claude-3.')) return false;
+        // Skip dated versions if we have a "latest" alias - only keep latest aliases
+        // e.g., skip "claude-opus-4-5-20251101" if "claude-opus-4-5" exists
+        if (id.match(/-\d{8}$/)) return false; // ends with date like -20251101
+        return true;
+      });
+    }
+    
+    // Dedupe by model ID (keep first occurrence)
+    const seen = new Set();
+    return familyModels.filter(m => {
+      if (seen.has(m.id)) return false;
+      seen.add(m.id);
+      return true;
+    });
+  }
+  
+  getModelDescription(modelId) {
+    const id = modelId.toLowerCase();
+    if (id.includes('haiku')) return 'fast & affordable';
+    if (id.includes('sonnet')) return 'balanced';
+    if (id.includes('opus')) return 'most capable';
+    return '';
+  }
+  
+  async resendLastUserMessage(opts = {}) {
+    const chat = this.chats[this.currentChatId];
+    if (!chat || !this.connected) return;
+    
+    const lastUserMsg = [...chat.messages].reverse().find(m => m.role === 'user');
+    if (!lastUserMsg) return;
+    
+    // Start streaming
+    this.streaming = true;
+    this.streamBuffer = '';
+    this.updateStreamingUI();
+    this.renderMessages();
+
+    try {
+      this.addTokens(this.estimateTokens(lastUserMsg.content));
+      
+      await this.request('chat.send', {
+        sessionKey: this.sessionKey,
+        message: lastUserMsg.content,
+        deliver: false,
+        idempotencyKey: this.generateId()
+      });
+    } catch (error) {
+      console.error('Resend failed:', error);
+      this.streaming = false;
+      this.updateStreamingUI();
+    }
   }
 
   formatContent(content) {
@@ -1676,13 +2303,6 @@ Example: [0, 2, 5]`;
       this.streamBuffer = content;
       this.updateStreamingMessage();
     } else if (state === 'final' || state === 'aborted' || state === 'error') {
-      console.log('Chat event ended:', { 
-        state, 
-        sessionKey: payload.sessionKey,
-        contentLength: content?.length, 
-        bufferLength: this.streamBuffer?.length,
-        wasStreaming: this.streaming 
-      });
       if (!this.streaming) {
         console.log('Ignoring duplicate end event - not streaming');
         return;
@@ -1690,12 +2310,15 @@ Example: [0, 2, 5]`;
       this.streaming = false;
       this.updateStreamingUI();
 
+      // Use final content if available (more complete), fall back to buffer
+      const finalContent = content || this.streamBuffer;
+
       if (state === 'error') {
         this.addAssistantMessage('Error: ' + (payload.errorMessage || 'Unknown error'));
-      } else if (this.streamBuffer) {
+      } else if (finalContent) {
         // Track output tokens
-        this.addTokens(this.estimateTokens(this.streamBuffer));
-        this.addAssistantMessage(this.streamBuffer);
+        this.addTokens(this.estimateTokens(finalContent));
+        this.addAssistantMessage(finalContent);
       }
 
       this.streamBuffer = '';
@@ -1711,7 +2334,7 @@ Example: [0, 2, 5]`;
       }
     }
     // Update conversation token total (includes streaming)
-    this.updateChatTokens();
+    this.updateTokenDisplay();
     this.scrollToBottom();
   }
 

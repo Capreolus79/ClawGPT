@@ -197,7 +197,8 @@ body {
 }
 
 .chat-item .delete-btn,
-.chat-item .pin-btn {
+.chat-item .pin-btn,
+.chat-item .rename-btn {
   background: none;
   border: none;
   color: var(--text-muted);
@@ -215,6 +216,44 @@ body {
 
 .chat-item .pin-btn:hover {
   background: rgba(16, 163, 127, 0.1);
+}
+
+.chat-item .rename-btn:hover {
+  background: rgba(99, 102, 241, 0.1);
+  color: #818cf8;
+}
+
+/* Branch chat styling */
+.chat-item.branch {
+  padding-left: 24px;
+  border-left: 2px solid var(--border-color);
+  margin-left: 8px;
+  background: rgba(99, 102, 241, 0.03);
+}
+
+.chat-item.branch:hover {
+  background: rgba(99, 102, 241, 0.08);
+}
+
+.chat-item.branch.active {
+  background: rgba(99, 102, 241, 0.12);
+  border-left-color: var(--accent-color);
+}
+
+.branch-indicator {
+  display: inline-flex;
+  margin-right: 6px;
+  opacity: 0.6;
+}
+
+.branch-icon {
+  width: 12px;
+  height: 12px;
+}
+
+.chat-item .rename-btn svg {
+  width: 14px;
+  height: 14px;
 }
 
 .pin-icon {
@@ -397,6 +436,54 @@ body {
   align-items: center;
   gap: 12px;
   margin-bottom: 12px;
+}
+
+.message-actions {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  margin-left: auto;
+  opacity: 0;
+  transition: opacity 0.15s;
+}
+
+.message:hover .message-actions {
+  opacity: 1;
+}
+
+.msg-action-btn {
+  background: none;
+  border: none;
+  color: var(--text-muted);
+  cursor: pointer;
+  padding: 6px;
+  border-radius: 6px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.15s;
+}
+
+.msg-action-btn svg {
+  width: 16px;
+  height: 16px;
+}
+
+.msg-action-btn:hover {
+  background: var(--bg-tertiary);
+  color: var(--text-primary);
+}
+
+.msg-action-btn.copy-btn.copied {
+  color: var(--accent-color);
+}
+
+.msg-action-btn.regen-btn:hover {
+  color: var(--accent-color);
+}
+
+.msg-action-btn.edit-btn:hover {
+  color: #818cf8;
 }
 
 .avatar {
@@ -712,6 +799,78 @@ body {
   background: var(--accent-hover);
 }
 
+.cancel-btn {
+  flex: 1;
+  padding: 12px;
+  border: 1px solid var(--border-color);
+  border-radius: 8px;
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.2s;
+  background: transparent;
+  color: var(--text-secondary);
+}
+
+.cancel-btn:hover {
+  background: var(--bg-primary);
+  color: var(--text-primary);
+}
+
+.modal-small {
+  max-width: 360px;
+}
+
+.form-group select {
+  width: 100%;
+  padding: 12px 16px;
+  background: var(--bg-primary);
+  border: 1px solid var(--border-color);
+  border-radius: 8px;
+  color: var(--text-primary);
+  font-size: 14px;
+  cursor: pointer;
+  appearance: none;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'%3E%3Cpath fill='%239ca3af' d='M2 4l4 4 4-4'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 12px center;
+}
+
+.form-group select:focus {
+  outline: none;
+  border-color: var(--accent-color);
+}
+
+.form-group select option {
+  background: var(--bg-secondary);
+  color: var(--text-primary);
+}
+
+.form-group textarea {
+  width: 100%;
+  padding: 12px 16px;
+  background: var(--bg-primary);
+  border: 1px solid var(--border-color);
+  border-radius: 8px;
+  color: var(--text-primary);
+  font-size: 14px;
+  font-family: inherit;
+  resize: vertical;
+  min-height: 80px;
+}
+
+.form-group textarea:focus {
+  outline: none;
+  border-color: var(--accent-color);
+}
+
+.branch-hint {
+  font-size: 13px;
+  color: var(--text-secondary);
+  margin-bottom: 16px;
+  font-style: italic;
+}
+
 .connect-btn.secondary {
   background: transparent;
   color: var(--text-secondary);
@@ -960,7 +1119,31 @@ body {
   color: #a855f7;
 }
 
-/* Semantic search indicator */
+/* Header info area (model + tokens) */
+.header-info {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-right: 12px;
+}
+
+.chat-model {
+  font-size: 11px;
+  color: var(--text-muted);
+  padding: 4px 10px;
+  background: var(--bg-tertiary);
+  border-radius: 12px;
+  display: none;
+  max-width: 150px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.chat-model.visible {
+  display: block;
+}
+
 /* Chat token total display */
 .chat-tokens {
   font-size: 12px;
@@ -968,7 +1151,6 @@ body {
   padding: 4px 10px;
   background: var(--bg-tertiary);
   border-radius: 12px;
-  margin-right: 12px;
   font-variant-numeric: tabular-nums;
   display: none;
 }
