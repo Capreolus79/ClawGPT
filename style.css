@@ -360,8 +360,9 @@ body {
 }
 
 .help-btn svg {
-  width: 16px;
-  height: 16px;
+  width: 18px;
+  height: 18px;
+  flex-shrink: 0;
 }
 
 /* Shortcuts modal */
@@ -1998,7 +1999,8 @@ body {
   justify-content: center;
 }
 
-.sidebar.collapsed .settings-btn {
+.sidebar.collapsed .settings-btn,
+.sidebar.collapsed .help-btn {
   padding: 12px;
   justify-content: center;
   flex: 1;
