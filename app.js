@@ -34,6 +34,18 @@ class ClawGPT {
       this.sessionKey = 'main';
       this.darkMode = true;
     }
+    
+    // Check URL params for token (allows one-time setup links)
+    const urlParams = new URLSearchParams(window.location.search);
+    const urlToken = urlParams.get('token');
+    if (urlToken) {
+      this.authToken = urlToken;
+      // Save it so it persists
+      this.saveSettings();
+      // Strip token from URL for security (don't leave in address bar/history)
+      const cleanUrl = window.location.pathname;
+      window.history.replaceState({}, document.title, cleanUrl);
+    }
   }
 
   saveSettings() {
@@ -67,6 +79,7 @@ class ClawGPT {
       welcome: document.getElementById('welcome'),
       messageInput: document.getElementById('messageInput'),
       sendBtn: document.getElementById('sendBtn'),
+      stopBtn: document.getElementById('stopBtn'),
       newChatBtn: document.getElementById('newChatBtn'),
       settingsBtn: document.getElementById('settingsBtn'),
       settingsModal: document.getElementById('settingsModal'),
@@ -98,6 +111,7 @@ class ClawGPT {
     this.elements.messageInput.addEventListener('input', () => this.onInputChange());
 
     this.elements.newChatBtn.addEventListener('click', () => this.newChat());
+    this.elements.stopBtn.addEventListener('click', () => this.stopGeneration());
     this.elements.settingsBtn.addEventListener('click', () => this.openSettings());
     this.elements.closeSettings.addEventListener('click', () => this.closeSettings());
     this.elements.connectBtn.addEventListener('click', () => this.connect());
@@ -256,10 +270,10 @@ class ClawGPT {
         minProtocol: 3,
         maxProtocol: 3,
         client: {
-          id: 'cli',
+          id: 'openclaw-control-ui',
           version: '0.1.0',
           platform: 'web',
-          mode: 'operator'
+          mode: 'ui'
         },
         role: 'operator',
         scopes: ['operator.read', 'operator.write'],
@@ -543,6 +557,7 @@ class ClawGPT {
     // Start streaming
     this.streaming = true;
     this.streamBuffer = '';
+    this.updateStreamingUI();
     this.renderMessages();
 
     try {
@@ -560,6 +575,25 @@ class ClawGPT {
     }
   }
 
+  stopGeneration() {
+    if (!this.streaming) return;
+    
+    this.streaming = false;
+    this.updateStreamingUI();
+    
+    // Save whatever we have so far
+    if (this.streamBuffer) {
+      this.addAssistantMessage(this.streamBuffer + '\n\n*[Generation stopped]*');
+    }
+    this.streamBuffer = '';
+  }
+
+  updateStreamingUI() {
+    this.elements.sendBtn.style.display = this.streaming ? 'none' : 'flex';
+    this.elements.stopBtn.style.display = this.streaming ? 'flex' : 'none';
+    this.onInputChange();
+  }
+
   handleChatEvent(payload) {
     if (!payload) return;
 
@@ -575,6 +609,7 @@ class ClawGPT {
       this.updateStreamingMessage();
     } else if (state === 'final' || state === 'aborted' || state === 'error') {
       this.streaming = false;
+      this.updateStreamingUI();
 
       if (state === 'error') {
         this.addAssistantMessage('Error: ' + (payload.errorMessage || 'Unknown error'));
@@ -583,7 +618,6 @@ class ClawGPT {
       }
 
       this.streamBuffer = '';
-      this.onInputChange();
     }
   }
 

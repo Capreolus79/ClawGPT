@@ -425,6 +425,28 @@ body {
   height: 18px;
 }
 
+.stop-btn {
+  background: #ef4444;
+  border: none;
+  border-radius: 8px;
+  color: white;
+  cursor: pointer;
+  padding: 8px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: background 0.2s;
+}
+
+.stop-btn:hover {
+  background: #dc2626;
+}
+
+.stop-btn svg {
+  width: 18px;
+  height: 18px;
+}
+
 .disclaimer {
   text-align: center;
   font-size: 12px;
