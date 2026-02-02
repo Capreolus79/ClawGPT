@@ -192,24 +192,34 @@ class ClawGPT {
 
   // Settings
   loadSettings() {
+    // Check for config.js defaults (optional file)
+    const config = window.CLAWGPT_CONFIG || {};
+    
     const saved = localStorage.getItem('clawgpt-settings');
     if (saved) {
       const settings = JSON.parse(saved);
-      this.gatewayUrl = settings.gatewayUrl || 'ws://localhost:18789';
-      this.authToken = settings.authToken || '';
-      this.sessionKey = settings.sessionKey || 'main';
+      this.gatewayUrl = settings.gatewayUrl || config.gatewayUrl || 'ws://localhost:18789';
+      // Use saved token, fall back to config, then empty
+      this.authToken = settings.authToken || config.authToken || '';
+      this.sessionKey = settings.sessionKey || config.sessionKey || 'main';
       this.darkMode = settings.darkMode !== false;
       this.smartSearch = settings.smartSearch !== false; // Default on
       this.semanticSearch = settings.semanticSearch || false; // Default off
       this.showTokens = settings.showTokens !== false; // Default on
     } else {
-      this.gatewayUrl = 'ws://localhost:18789';
-      this.authToken = '';
-      this.sessionKey = 'main';
-      this.darkMode = true;
+      // No saved settings - use config.js values or defaults
+      this.gatewayUrl = config.gatewayUrl || 'ws://localhost:18789';
+      this.authToken = config.authToken || '';
+      this.sessionKey = config.sessionKey || 'main';
+      this.darkMode = config.darkMode !== false;
       this.smartSearch = true;
       this.semanticSearch = false;
       this.showTokens = true;
+    }
+    
+    // Log if using config.js
+    if (config.authToken && this.authToken === config.authToken) {
+      console.log('Using auth token from config.js');
     }
     
     // Token tracking

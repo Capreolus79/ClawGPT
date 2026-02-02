@@ -75,6 +75,27 @@ Click the **Settings** button (gear icon) to configure:
 | Smart Search | AI-generated summaries for search | On |
 | Export/Import | Backup and restore all chats | — |
 
+### Auto-Connect (Optional)
+
+For multi-browser or incognito use, create a `config.js` file:
+
+```bash
+cp config.example.js config.js
+# Edit config.js with your token
+```
+
+```javascript
+window.CLAWGPT_CONFIG = {
+  gatewayUrl: 'ws://localhost:18789',
+  authToken: 'your-token-here',
+  sessionKey: 'main'
+};
+```
+
+Any browser opening ClawGPT will auto-connect using this config. The file is gitignored so your token won't be committed.
+
+> ⚠️ **Security**: Only use config.js on localhost. If exposed to a network, anyone can view your token in the source.
+
 ## 🔧 How It Works
 
 ClawGPT connects directly to OpenClaw's Gateway WebSocket API:
