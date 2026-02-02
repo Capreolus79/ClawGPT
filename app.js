@@ -2,6 +2,24 @@
 // https://github.com/openclaw/openclaw
 
 class ClawGPT {
+  // Stop words for search filtering (class constant for performance)
+  static STOP_WORDS = new Set([
+    'the', 'a', 'an', 'and', 'or', 'but', 'in', 'on', 'at', 'to', 'for',
+    'of', 'with', 'by', 'from', 'as', 'is', 'was', 'are', 'were', 'been',
+    'be', 'have', 'has', 'had', 'do', 'does', 'did', 'will', 'would', 'could',
+    'should', 'may', 'might', 'must', 'shall', 'can', 'need', 'dare', 'ought',
+    'used', 'that', 'this', 'these', 'those', 'what', 'which', 'who', 'whom',
+    'whose', 'where', 'when', 'why', 'how', 'all', 'each', 'every', 'both',
+    'few', 'more', 'most', 'other', 'some', 'such', 'no', 'nor', 'not', 'only',
+    'own', 'same', 'so', 'than', 'too', 'very', 'just', 'also', 'now', 'here',
+    'there', 'then', 'once', 'any', 'about', 'into', 'through', 'during',
+    'before', 'after', 'above', 'below', 'between', 'under', 'again', 'further',
+    'something', 'anything', 'everything', 'nothing', 'someone', 'anyone',
+    'everyone', 'thing', 'things', 'stuff', 'like', 'want', 'wanted', 'find',
+    'search', 'looking', 'look', 'show', 'tell', 'told', 'said', 'says',
+    'mentions', 'mentioned', 'talked', 'talk', 'chat', 'chats', 'message'
+  ]);
+  
   constructor() {
     this.ws = null;
     this.connected = false;
@@ -29,12 +47,21 @@ class ClawGPT {
       this.authToken = settings.authToken || '';
       this.sessionKey = settings.sessionKey || 'main';
       this.darkMode = settings.darkMode !== false;
+      this.smartSearch = settings.smartSearch !== false; // Default on
+      this.semanticSearch = settings.semanticSearch || false; // Default off
+      this.showTokens = settings.showTokens !== false; // Default on
     } else {
       this.gatewayUrl = 'ws://localhost:18789';
       this.authToken = '';
       this.sessionKey = 'main';
       this.darkMode = true;
+      this.smartSearch = true;
+      this.semanticSearch = false;
+      this.showTokens = true;
     }
+    
+    // Token tracking
+    this.tokenCount = parseInt(localStorage.getItem('clawgpt-tokens') || '0');
     
     // Check URL params for token (allows one-time setup links)
     const urlParams = new URLSearchParams(window.location.search);
@@ -54,8 +81,63 @@ class ClawGPT {
       gatewayUrl: this.gatewayUrl,
       authToken: this.authToken,
       sessionKey: this.sessionKey,
-      darkMode: this.darkMode
+      darkMode: this.darkMode,
+      smartSearch: this.smartSearch,
+      semanticSearch: this.semanticSearch,
+      showTokens: this.showTokens
     }));
+  }
+  
+  saveTokenCount() {
+    localStorage.setItem('clawgpt-tokens', String(this.tokenCount));
+  }
+  
+  addTokens(count) {
+    this.tokenCount += count;
+    this.saveTokenCount();
+    this.updateTokenDisplay();
+  }
+  
+  updateTokenDisplay() {
+    this.updateChatTokens();
+  }
+  
+  updateChatTokens() {
+    const chatTokensEl = document.getElementById('chatTokens');
+    if (!chatTokensEl) return;
+    
+    if (!this.showTokens || !this.currentChatId) {
+      chatTokensEl.style.display = 'none';
+      return;
+    }
+    
+    const chat = this.chats[this.currentChatId];
+    if (!chat || !chat.messages) {
+      chatTokensEl.style.display = 'none';
+      return;
+    }
+    
+    // Calculate total tokens for this conversation
+    let total = chat.messages.reduce((sum, msg) => sum + this.estimateTokens(msg.content), 0);
+    
+    // Add streaming buffer if currently streaming
+    if (this.streaming && this.streamBuffer) {
+      total += this.estimateTokens(this.streamBuffer);
+    }
+    
+    chatTokensEl.textContent = `~${this.formatTokenCount(total)} tokens`;
+    chatTokensEl.style.display = 'block';
+  }
+  
+  formatTokenCount(count) {
+    if (count >= 1000000) return (count / 1000000).toFixed(1) + 'M';
+    if (count >= 1000) return (count / 1000).toFixed(1) + 'K';
+    return String(count);
+  }
+  
+  estimateTokens(text) {
+    // Rough estimate: ~4 chars per token for English
+    return Math.ceil(text.length / 4);
   }
 
   // Chat storage
@@ -76,6 +158,9 @@ class ClawGPT {
     this.elements = {
       sidebar: document.getElementById('sidebar'),
       chatList: document.getElementById('chatList'),
+      searchModal: document.getElementById('searchModal'),
+      searchInput: document.getElementById('searchInput'),
+      searchResults: document.getElementById('searchResults'),
       messages: document.getElementById('messages'),
       welcome: document.getElementById('welcome'),
       messageInput: document.getElementById('messageInput'),
@@ -116,6 +201,12 @@ class ClawGPT {
     this.elements.settingsBtn.addEventListener('click', () => this.openSettings());
     this.elements.closeSettings.addEventListener('click', () => this.closeSettings());
     this.elements.connectBtn.addEventListener('click', () => this.connect());
+    
+    // Save settings button
+    const saveSettingsBtn = document.getElementById('saveSettingsBtn');
+    if (saveSettingsBtn) {
+      saveSettingsBtn.addEventListener('click', () => this.saveAndCloseSettings());
+    }
     this.elements.menuBtn.addEventListener('click', () => this.toggleSidebar());
 
     this.elements.darkMode.addEventListener('change', (e) => {
@@ -123,6 +214,54 @@ class ClawGPT {
       this.applyTheme();
       this.saveSettings();
     });
+    
+    // Smart search toggle
+    const smartSearchEl = document.getElementById('smartSearch');
+    const semanticSearchSetting = document.getElementById('semanticSearchSetting');
+    const semanticSearchEl = document.getElementById('semanticSearch');
+    if (smartSearchEl) {
+      smartSearchEl.checked = this.smartSearch;
+      // Show/hide semantic search sub-setting
+      if (semanticSearchSetting) {
+        semanticSearchSetting.style.display = this.smartSearch ? 'block' : 'none';
+      }
+      smartSearchEl.addEventListener('change', (e) => {
+        this.smartSearch = e.target.checked;
+        // If disabling smart search, also disable semantic
+        if (!e.target.checked) {
+          this.semanticSearch = false;
+          if (semanticSearchEl) semanticSearchEl.checked = false;
+        }
+        this.saveSettings();
+        // Toggle semantic search visibility
+        if (semanticSearchSetting) {
+          semanticSearchSetting.style.display = e.target.checked ? 'block' : 'none';
+        }
+      });
+    }
+    
+    // Semantic search toggle
+    if (semanticSearchEl) {
+      semanticSearchEl.checked = this.semanticSearch;
+      semanticSearchEl.addEventListener('change', (e) => {
+        this.semanticSearch = e.target.checked;
+        this.saveSettings();
+      });
+    }
+    
+    // Show tokens toggle
+    const showTokensEl = document.getElementById('showTokens');
+    if (showTokensEl) {
+      showTokensEl.checked = this.showTokens;
+      showTokensEl.addEventListener('change', (e) => {
+        this.showTokens = e.target.checked;
+        this.saveSettings();
+        this.updateTokenDisplay();
+      });
+    }
+    
+    // Initialize token display
+    this.updateTokenDisplay();
 
     // Close modal on outside click
     this.elements.settingsModal.addEventListener('click', (e) => {
@@ -130,6 +269,70 @@ class ClawGPT {
         this.closeSettings();
       }
     });
+
+    // Sidebar search box - opens full search modal
+    const sidebarSearchInput = document.getElementById('sidebarSearchInput');
+    if (sidebarSearchInput) {
+      sidebarSearchInput.addEventListener('focus', () => {
+        this.openSearch();
+        sidebarSearchInput.blur(); // Remove focus from sidebar input
+      });
+    }
+
+    // Search modal
+    this.elements.searchModal.addEventListener('click', (e) => {
+      if (e.target === this.elements.searchModal) {
+        this.closeSearch();
+      }
+    });
+    
+    // Initialize search AI toggles
+    this.initSearchToggles();
+
+    this.elements.searchInput.addEventListener('input', (e) => {
+      this.handleSearchInput(e.target.value);
+    });
+
+    // Search filter buttons
+    document.querySelectorAll('.filter-btn').forEach(btn => {
+      btn.addEventListener('click', () => {
+        document.querySelectorAll('.filter-btn').forEach(b => b.classList.remove('active'));
+        btn.classList.add('active');
+        this.searchFilter = btn.dataset.filter;
+        this.handleSearchInput(this.elements.searchInput.value);
+      });
+    });
+
+    // Keyboard shortcuts
+    document.addEventListener('keydown', (e) => {
+      // Ctrl+K or Cmd+K to open search
+      if ((e.ctrlKey || e.metaKey) && e.key === 'k') {
+        e.preventDefault();
+        this.openSearch();
+      }
+      // Escape to close search
+      if (e.key === 'Escape' && this.elements.searchModal.classList.contains('open')) {
+        this.closeSearch();
+      }
+      // Arrow key navigation in search results
+      if (this.elements.searchModal.classList.contains('open')) {
+        if (e.key === 'ArrowDown') {
+          e.preventDefault();
+          this.navigateSearchResults(1);
+        } else if (e.key === 'ArrowUp') {
+          e.preventDefault();
+          this.navigateSearchResults(-1);
+        } else if (e.key === 'Enter' && this.selectedSearchIndex >= 0) {
+          e.preventDefault();
+          this.selectSearchResult();
+        }
+      }
+    });
+
+    this.searchFilter = 'all';
+    this.searchDebounceTimer = null;
+    this.selectedSearchIndex = -1;
+    this.recentSearches = JSON.parse(localStorage.getItem('clawgpt-recent-searches') || '[]');
 
     // Render chat list
     this.renderChatList();
@@ -155,10 +358,647 @@ class ClawGPT {
   // Settings modal
   openSettings() {
     this.elements.settingsModal.classList.add('open');
+    this.updateSettingsButtons();
   }
 
   closeSettings() {
     this.elements.settingsModal.classList.remove('open');
+  }
+  
+  saveAndCloseSettings() {
+    // Save any changed settings from UI
+    this.darkMode = this.elements.darkMode.checked;
+    this.applyTheme();
+    
+    const smartSearchEl = document.getElementById('smartSearch');
+    if (smartSearchEl) this.smartSearch = smartSearchEl.checked;
+    
+    const showTokensEl = document.getElementById('showTokens');
+    if (showTokensEl) {
+      this.showTokens = showTokensEl.checked;
+      this.updateTokenDisplay();
+    }
+    
+    this.saveSettings();
+    this.closeSettings();
+  }
+  
+  updateSettingsButtons() {
+    const saveBtn = document.getElementById('saveSettingsBtn');
+    const connectBtn = document.getElementById('connectBtn');
+    
+    if (saveBtn && connectBtn) {
+      if (this.connected) {
+        saveBtn.style.display = 'block';
+        connectBtn.textContent = 'Reconnect';
+        connectBtn.style.display = 'block';
+        connectBtn.classList.add('secondary');
+      } else {
+        saveBtn.style.display = 'none';
+        connectBtn.textContent = 'Connect';
+        connectBtn.style.display = 'block';
+        connectBtn.classList.remove('secondary');
+      }
+    }
+  }
+
+  // Search
+  openSearch() {
+    this.elements.searchModal.classList.add('open');
+    this.elements.searchInput.focus();
+    this.elements.searchInput.value = '';
+    this.selectedSearchIndex = -1;
+    
+    // Show recent searches or empty state
+    if (this.recentSearches.length > 0) {
+      this.elements.searchResults.innerHTML = `
+        <div class="recent-searches">
+          <div class="recent-searches-header">Recent searches</div>
+          ${this.recentSearches.map((term, i) => `
+            <div class="recent-search-item" data-term="${this.escapeHtml(term)}" data-index="${i}">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <circle cx="12" cy="12" r="10"/><path d="M12 6v6l4 2"/>
+              </svg>
+              ${this.escapeHtml(term)}
+            </div>
+          `).join('')}
+        </div>
+      `;
+      // Click handlers for recent searches
+      this.elements.searchResults.querySelectorAll('.recent-search-item').forEach(el => {
+        el.addEventListener('click', () => {
+          this.elements.searchInput.value = el.dataset.term;
+          this.handleSearchInput(el.dataset.term);
+        });
+      });
+    } else {
+      this.elements.searchResults.innerHTML = '<div class="search-empty">Start typing to search...</div>';
+    }
+    
+    // Sync search toggles with settings
+    const deepToggle = document.getElementById('searchDeepToggle');
+    const deeperToggle = document.getElementById('searchDeeperToggle');
+    if (deepToggle) deepToggle.checked = this.smartSearch;
+    if (deeperToggle) {
+      deeperToggle.checked = this.semanticSearch;
+      deeperToggle.disabled = !this.smartSearch;
+    }
+  }
+  
+  navigateSearchResults(direction) {
+    const results = this.elements.searchResults.querySelectorAll('.search-result');
+    if (results.length === 0) return;
+    
+    // Remove previous selection
+    results.forEach(r => r.classList.remove('selected'));
+    
+    // Update index
+    this.selectedSearchIndex += direction;
+    if (this.selectedSearchIndex < 0) this.selectedSearchIndex = results.length - 1;
+    if (this.selectedSearchIndex >= results.length) this.selectedSearchIndex = 0;
+    
+    // Apply selection and scroll into view
+    const selected = results[this.selectedSearchIndex];
+    if (selected) {
+      selected.classList.add('selected');
+      selected.scrollIntoView({ block: 'nearest' });
+    }
+  }
+  
+  selectSearchResult() {
+    const results = this.elements.searchResults.querySelectorAll('.search-result');
+    const selected = results[this.selectedSearchIndex];
+    if (selected) {
+      const chatId = selected.dataset.chatId;
+      const msgIndex = parseInt(selected.dataset.msgIndex);
+      this.closeSearch();
+      this.selectChat(chatId);
+      if (msgIndex >= 0) {
+        setTimeout(() => this.highlightMessage(msgIndex), 100);
+      }
+    }
+  }
+  
+  saveRecentSearch(query) {
+    if (!query || query.length < 2) return;
+    
+    // Remove if already exists, add to front
+    this.recentSearches = this.recentSearches.filter(s => s !== query);
+    this.recentSearches.unshift(query);
+    
+    // Keep only last 5
+    this.recentSearches = this.recentSearches.slice(0, 5);
+    localStorage.setItem('clawgpt-recent-searches', JSON.stringify(this.recentSearches));
+  }
+  
+  initSearchToggles() {
+    const deepToggle = document.getElementById('searchDeepToggle');
+    const deeperToggle = document.getElementById('searchDeeperToggle');
+    
+    if (deepToggle) {
+      deepToggle.addEventListener('change', (e) => {
+        this.smartSearch = e.target.checked;
+        // Sync to settings
+        const settingsToggle = document.getElementById('smartSearch');
+        if (settingsToggle) settingsToggle.checked = e.target.checked;
+        
+        // Disable deeper if deep is off
+        if (deeperToggle) {
+          deeperToggle.disabled = !e.target.checked;
+          if (!e.target.checked) {
+            deeperToggle.checked = false;
+            this.semanticSearch = false;
+            const settingsSemantic = document.getElementById('semanticSearch');
+            if (settingsSemantic) settingsSemantic.checked = false;
+          }
+        }
+        
+        this.saveSettings();
+        // Re-run search if there's a query
+        const query = this.elements.searchInput.value.trim();
+        if (query) this.performSearch(query);
+      });
+    }
+    
+    if (deeperToggle) {
+      deeperToggle.addEventListener('change', (e) => {
+        this.semanticSearch = e.target.checked;
+        // Sync to settings
+        const settingsToggle = document.getElementById('semanticSearch');
+        if (settingsToggle) settingsToggle.checked = e.target.checked;
+        
+        this.saveSettings();
+        // Re-run search if there's a query
+        const query = this.elements.searchInput.value.trim();
+        if (query) this.performSearch(query);
+      });
+    }
+  }
+
+  closeSearch() {
+    this.elements.searchModal.classList.remove('open');
+    this.elements.searchInput.value = '';
+  }
+
+  handleSearchInput(query) {
+    // Debounce
+    clearTimeout(this.searchDebounceTimer);
+    
+    if (!query.trim()) {
+      this.elements.searchResults.innerHTML = '<div class="search-empty">Start typing to search...</div>';
+      return;
+    }
+
+    this.searchDebounceTimer = setTimeout(() => {
+      this.performSearch(query.trim());
+    }, 150);
+  }
+
+  performSearch(query) {
+    const results = [];
+    const queryLower = query.toLowerCase();
+    
+    // Extract meaningful words (3+ chars, not stop words)
+    const queryWords = queryLower.split(/\s+/).filter(w => w.length >= 3 && !ClawGPT.STOP_WORDS.has(w));
+    
+    // If all words were filtered out, use the longest word from original query
+    if (queryWords.length === 0) {
+      const allWords = queryLower.split(/\s+/).filter(w => w.length >= 2);
+      if (allWords.length > 0) {
+        const longest = allWords.reduce((a, b) => a.length >= b.length ? a : b);
+        queryWords.push(longest);
+      }
+    }
+    
+    const seenChats = new Set(); // Track chats we've already added via metadata
+    const seenMessages = new Set(); // Track messages to avoid duplicates
+
+    Object.entries(this.chats).forEach(([chatId, chat]) => {
+      // LAYER 2: Check metadata first (topics, summary, entities)
+      // Works with all filters - metadata gives chat-level context
+      if (chat.metadata && this.smartSearch) {
+        const meta = chat.metadata;
+        let metaMatch = null;
+        
+        // Check topics - match any query word
+        const matchingTopic = (meta.topics || []).find(t => {
+          const tLower = t.toLowerCase();
+          return queryWords.some(w => tLower.includes(w)) || tLower.includes(queryLower);
+        });
+        if (matchingTopic) {
+          metaMatch = { type: 'topic', match: matchingTopic };
+        }
+        
+        // Check summary - match any query word
+        if (!metaMatch && meta.summary) {
+          const summaryLower = meta.summary.toLowerCase();
+          if (queryWords.some(w => summaryLower.includes(w)) || summaryLower.includes(queryLower)) {
+            metaMatch = { type: 'summary', match: meta.summary };
+          }
+        }
+        
+        // Check entities - match any query word
+        if (!metaMatch) {
+          const matchingEntity = (meta.entities || []).find(e => {
+            const eLower = e.toLowerCase();
+            return queryWords.some(w => eLower.includes(w)) || eLower.includes(queryLower);
+          });
+          if (matchingEntity) {
+            metaMatch = { type: 'entity', match: matchingEntity };
+          }
+        }
+        
+        if (metaMatch) {
+          seenChats.add(chatId);
+          results.push({
+            chatId,
+            chatTitle: chat.title,
+            msgIndex: -1, // No specific message
+            role: 'meta',
+            content: meta.summary || chat.title,
+            matchType: metaMatch.type,
+            matchValue: metaMatch.match,
+            metadata: meta,
+            timestamp: chat.updatedAt
+          });
+        }
+      }
+      
+      // LAYER 1: Keyword search in messages - match any query word
+      chat.messages.forEach((msg, msgIndex) => {
+        // Apply filter
+        if (this.searchFilter !== 'all' && msg.role !== this.searchFilter) {
+          return;
+        }
+
+        const content = msg.content.toLowerCase();
+        
+        // Check for exact phrase OR any query word
+        let matchIndex = content.indexOf(queryLower);
+        let matchedWord = queryLower;
+        
+        if (matchIndex === -1 && queryWords.length > 0) {
+          // Try matching individual words
+          for (const word of queryWords) {
+            const wordIndex = content.indexOf(word);
+            if (wordIndex !== -1) {
+              matchIndex = wordIndex;
+              matchedWord = word;
+              break;
+            }
+          }
+        }
+        
+        if (matchIndex !== -1) {
+          // Deduplicate: skip if this message was already added
+          const msgKey = `${chatId}-${msgIndex}`;
+          if (seenMessages.has(msgKey)) return;
+          seenMessages.add(msgKey);
+          
+          results.push({
+            chatId,
+            chatTitle: chat.title,
+            msgIndex,
+            role: msg.role,
+            content: msg.content,
+            matchIndex,
+            matchedWord,
+            matchType: 'exact',
+            timestamp: msg.timestamp || chat.updatedAt
+          });
+        }
+      });
+    });
+
+    // Sort: metadata matches first (whole chat relevance), then by timestamp
+    results.sort((a, b) => {
+      // Metadata matches rank higher
+      if (a.matchType !== 'exact' && b.matchType === 'exact') return -1;
+      if (a.matchType === 'exact' && b.matchType !== 'exact') return 1;
+      // Then by timestamp
+      return (b.timestamp || 0) - (a.timestamp || 0);
+    });
+
+    // Store current results for merging with semantic
+    this.currentSearchResults = results;
+    this.currentSearchQuery = query;
+    this.selectedSearchIndex = -1; // Reset selection
+    this.saveRecentSearch(query);
+    this.renderSearchResults(results, query);
+    
+    // LAYER 3: Semantic search (async)
+    if (this.semanticSearch && this.connected && this.searchFilter === 'all') {
+      this.performSemanticSearch(query, seenChats);
+    }
+  }
+  
+  async performSemanticSearch(query, excludeChats) {
+    // Build list of chats with summaries for semantic matching
+    const chatSummaries = [];
+    Object.entries(this.chats).forEach(([chatId, chat]) => {
+      // Skip chats already found by keyword/metadata
+      if (excludeChats.has(chatId)) return;
+      
+      // Need either a summary or enough messages to describe
+      const summary = chat.metadata?.summary || '';
+      const topics = (chat.metadata?.topics || []).join(', ');
+      const preview = chat.messages.slice(0, 3).map(m => 
+        m.content.slice(0, 100)
+      ).join(' | ');
+      
+      if (summary || preview) {
+        chatSummaries.push({
+          id: chatId,
+          title: chat.title,
+          summary: summary,
+          topics: topics,
+          preview: preview.slice(0, 200)
+        });
+      }
+    });
+    
+    // No chats to search
+    if (chatSummaries.length === 0) return;
+    
+    // Show searching indicator
+    this.showSemanticSearching();
+    
+    const prompt = `Find chats semantically related to this search query: "${query}"
+
+Here are the available chats:
+${chatSummaries.map((c, i) => `[${i}] "${c.title}" - ${c.summary || c.preview}${c.topics ? ` (topics: ${c.topics})` : ''}`).join('\n')}
+
+Return ONLY a JSON array of indices for chats that are conceptually related to the query, even if they don't contain the exact words. Return empty array [] if none match.
+Example: [0, 2, 5]`;
+
+    try {
+      // Track tokens
+      this.addTokens(this.estimateTokens(prompt));
+      
+      await this.request('chat.send', {
+        sessionKey: '__clawgpt_semantic',
+        message: prompt,
+        deliver: false,
+        idempotencyKey: 'semantic-' + Date.now()
+      });
+      
+      // Store context for response handler
+      this.pendingSemanticSearch = {
+        query,
+        chatSummaries,
+        startedAt: Date.now()
+      };
+      
+      // Timeout after 15 seconds
+      setTimeout(() => {
+        if (this.pendingSemanticSearch?.query === query) {
+          console.log('Semantic search timed out');
+          this.hideSemanticSearching();
+          this.pendingSemanticSearch = null;
+          this.showSearchToast('Semantic search timed out');
+        }
+      }, 15000);
+      
+    } catch (error) {
+      console.error('Semantic search failed:', error);
+      this.hideSemanticSearching();
+      this.showSearchToast('Semantic search failed');
+    }
+  }
+  
+  showSearchToast(message) {
+    // Remove existing toast
+    const existing = document.getElementById('searchToast');
+    if (existing) existing.remove();
+    
+    const toast = document.createElement('div');
+    toast.id = 'searchToast';
+    toast.className = 'search-toast';
+    toast.textContent = message;
+    
+    const resultsEl = this.elements.searchResults;
+    if (resultsEl) {
+      resultsEl.insertBefore(toast, resultsEl.firstChild);
+      // Auto-remove after 3 seconds
+      setTimeout(() => toast.remove(), 3000);
+    }
+  }
+  
+  handleSemanticSearchResponse(content) {
+    if (!this.pendingSemanticSearch) return;
+    
+    // Track tokens
+    this.addTokens(this.estimateTokens(content));
+    
+    const { query, chatSummaries } = this.pendingSemanticSearch;
+    this.pendingSemanticSearch = null;
+    this.hideSemanticSearching();
+    
+    // Verify we're still on the same search
+    if (query !== this.currentSearchQuery) return;
+    
+    try {
+      // Extract JSON array from response
+      const match = content.match(/\[[\d,\s]*\]/);
+      if (!match) return;
+      
+      const indices = JSON.parse(match[0]);
+      if (!Array.isArray(indices) || indices.length === 0) return;
+      
+      // Build semantic results
+      const semanticResults = [];
+      indices.forEach(idx => {
+        if (idx >= 0 && idx < chatSummaries.length) {
+          const chatInfo = chatSummaries[idx];
+          const chat = this.chats[chatInfo.id];
+          if (chat) {
+            semanticResults.push({
+              chatId: chatInfo.id,
+              chatTitle: chat.title,
+              msgIndex: -1,
+              role: 'meta',
+              content: chatInfo.summary || chatInfo.preview,
+              matchType: 'semantic',
+              matchValue: 'Related',
+              metadata: chat.metadata,
+              timestamp: chat.updatedAt
+            });
+          }
+        }
+      });
+      
+      if (semanticResults.length > 0) {
+        // Merge with existing results
+        const mergedResults = [...this.currentSearchResults, ...semanticResults];
+        
+        // Re-sort: exact first, then metadata, then semantic
+        mergedResults.sort((a, b) => {
+          const order = { exact: 0, topic: 1, summary: 1, entity: 1, semantic: 2 };
+          const orderA = order[a.matchType] ?? 1;
+          const orderB = order[b.matchType] ?? 1;
+          if (orderA !== orderB) return orderA - orderB;
+          return (b.timestamp || 0) - (a.timestamp || 0);
+        });
+        
+        this.currentSearchResults = mergedResults;
+        this.renderSearchResults(mergedResults, query);
+      }
+      
+    } catch (error) {
+      console.error('Failed to parse semantic search response:', error);
+    }
+  }
+  
+  showSemanticSearching() {
+    const indicator = document.createElement('div');
+    indicator.id = 'semanticSearchIndicator';
+    indicator.className = 'semantic-searching';
+    indicator.innerHTML = '🧠 Searching semantically...';
+    
+    const resultsEl = this.elements.searchResults;
+    if (resultsEl && !document.getElementById('semanticSearchIndicator')) {
+      resultsEl.insertBefore(indicator, resultsEl.firstChild);
+    }
+  }
+  
+  hideSemanticSearching() {
+    const indicator = document.getElementById('semanticSearchIndicator');
+    if (indicator) indicator.remove();
+  }
+
+  renderSearchResults(results, query) {
+    if (results.length === 0) {
+      this.elements.searchResults.innerHTML = `
+        <div class="search-no-results">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <circle cx="11" cy="11" r="8"/>
+            <path d="m21 21-4.35-4.35"/>
+          </svg>
+          <div>No results for "${this.escapeHtml(query)}"</div>
+        </div>
+      `;
+      return;
+    }
+
+    this.elements.searchResults.innerHTML = results.slice(0, 50).map(result => {
+      const timeAgo = this.getTimeAgo(result.timestamp);
+      const isMetaMatch = result.matchType && result.matchType !== 'exact';
+      
+      // Different display for metadata matches vs exact matches
+      let roleDisplay, snippet, matchBadge;
+      
+      if (isMetaMatch) {
+        roleDisplay = this.getMatchTypeBadge(result.matchType);
+        matchBadge = `<span class="match-badge ${result.matchType}">${result.matchValue}</span>`;
+        snippet = this.escapeHtml(result.content);
+        if (result.metadata?.topics?.length) {
+          snippet += `<div class="search-tags">${result.metadata.topics.map(t => 
+            `<span class="search-tag">${this.escapeHtml(t)}</span>`
+          ).join('')}</div>`;
+        }
+      } else {
+        roleDisplay = result.role === 'user' ? 'You' : 'AI';
+        matchBadge = '';
+        snippet = this.getSearchSnippet(result.content, result.matchedWord || query);
+      }
+      
+      const isSemantic = result.matchType === 'semantic';
+      const matchClass = isSemantic ? 'semantic-match' : (isMetaMatch ? 'meta-match' : '');
+      return `
+        <div class="search-result ${matchClass}" data-chat-id="${result.chatId}" data-msg-index="${result.msgIndex}">
+          <div class="search-result-header">
+            <span class="search-result-title">${this.escapeHtml(result.chatTitle)}</span>
+            <div class="search-result-meta">
+              <span class="search-result-role ${result.role}">${roleDisplay}</span>
+              ${matchBadge}
+              <span>${timeAgo}</span>
+            </div>
+          </div>
+          <div class="search-result-snippet">${snippet}</div>
+        </div>
+      `;
+    }).join('');
+
+    // Add click handlers
+    this.elements.searchResults.querySelectorAll('.search-result').forEach(el => {
+      el.addEventListener('click', () => {
+        const chatId = el.dataset.chatId;
+        const msgIndex = parseInt(el.dataset.msgIndex);
+        this.closeSearch();
+        this.selectChat(chatId);
+        // Scroll to and highlight the message
+        setTimeout(() => this.highlightMessage(msgIndex), 100);
+      });
+    });
+  }
+
+  getSearchSnippet(content, query) {
+    const maxLength = 150;
+    const lowerContent = content.toLowerCase();
+    const lowerQuery = query.toLowerCase();
+    const matchIndex = lowerContent.indexOf(lowerQuery);
+    
+    if (matchIndex === -1) return this.escapeHtml(content.slice(0, maxLength));
+    
+    // Get context around match
+    let start = Math.max(0, matchIndex - 40);
+    let end = Math.min(content.length, matchIndex + query.length + 80);
+    
+    // Adjust to word boundaries
+    if (start > 0) {
+      const spaceIndex = content.indexOf(' ', start);
+      if (spaceIndex !== -1 && spaceIndex < matchIndex) {
+        start = spaceIndex + 1;
+      }
+    }
+    
+    let snippet = content.slice(start, end);
+    if (start > 0) snippet = '...' + snippet;
+    if (end < content.length) snippet = snippet + '...';
+    
+    // Highlight match (case-insensitive but preserve case)
+    const regex = new RegExp(`(${this.escapeRegex(query)})`, 'gi');
+    snippet = this.escapeHtml(snippet).replace(regex, '<mark>$1</mark>');
+    
+    return snippet;
+  }
+
+  escapeRegex(string) {
+    return string.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  }
+
+  getMatchTypeBadge(matchType) {
+    const badges = {
+      topic: '🏷️ Topic',
+      summary: '📝 Summary', 
+      entity: '📌 Entity',
+      semantic: '🧠 Semantic'
+    };
+    return badges[matchType] || '🎯 Exact';
+  }
+
+  getTimeAgo(timestamp) {
+    if (!timestamp) return '';
+    
+    const seconds = Math.floor((Date.now() - timestamp) / 1000);
+    
+    if (seconds < 60) return 'just now';
+    if (seconds < 3600) return `${Math.floor(seconds / 60)}m ago`;
+    if (seconds < 86400) return `${Math.floor(seconds / 3600)}h ago`;
+    if (seconds < 604800) return `${Math.floor(seconds / 86400)}d ago`;
+    
+    return new Date(timestamp).toLocaleDateString();
+  }
+
+  highlightMessage(msgIndex) {
+    const messages = this.elements.messages.querySelectorAll('.message');
+    if (messages[msgIndex]) {
+      messages[msgIndex].scrollIntoView({ behavior: 'smooth', block: 'center' });
+      messages[msgIndex].classList.add('message-highlight');
+      setTimeout(() => {
+        messages[msgIndex].classList.remove('message-highlight');
+      }, 2000);
+    }
   }
 
   // WebSocket connection
@@ -204,6 +1044,7 @@ class ClawGPT {
         this.connected = false;
         this.setStatus('Disconnected');
         this.elements.sendBtn.disabled = true;
+        this.updateSettingsButtons();
       };
     } catch (error) {
       console.error('Connection error:', error);
@@ -236,6 +1077,7 @@ class ClawGPT {
         this.setStatus('Connected', true);
         this.onInputChange();
         this.loadHistory();
+        this.updateSettingsButtons();
       }
       return;
     }
@@ -332,23 +1174,44 @@ class ClawGPT {
       });
 
       if (result.messages && result.messages.length > 0) {
-        // Create or update current chat with history
-        if (!this.currentChatId) {
-          this.currentChatId = this.generateId();
-        }
-
         const messages = result.messages.map(m => ({
           role: m.role,
           content: this.extractContent(m.content),
           timestamp: m.timestamp
         })).filter(m => m.role === 'user' || m.role === 'assistant');
 
+        // Find existing chat that matches this session's history
+        // Match by first user message content (most reliable identifier)
+        const firstUserMsg = messages.find(m => m.role === 'user');
+        let existingChatId = null;
+        
+        if (firstUserMsg) {
+          const firstMsgContent = firstUserMsg.content.slice(0, 100);
+          existingChatId = Object.keys(this.chats).find(chatId => {
+            const chat = this.chats[chatId];
+            const chatFirstUser = chat.messages?.find(m => m.role === 'user');
+            return chatFirstUser && chatFirstUser.content.slice(0, 100) === firstMsgContent;
+          });
+        }
+        
+        // Use existing chat or create new
+        if (existingChatId) {
+          this.currentChatId = existingChatId;
+        } else if (!this.currentChatId) {
+          this.currentChatId = this.generateId();
+        }
+
+        // Update chat with latest messages
+        const existingChat = this.chats[this.currentChatId];
         this.chats[this.currentChatId] = {
           id: this.currentChatId,
-          title: this.generateTitle(messages),
+          title: existingChat?.title || this.generateTitle(messages),
           messages: messages,
-          createdAt: messages[0]?.timestamp || Date.now(),
-          updatedAt: Date.now()
+          createdAt: existingChat?.createdAt || messages[0]?.timestamp || Date.now(),
+          updatedAt: Date.now(),
+          pinned: existingChat?.pinned,
+          pinnedOrder: existingChat?.pinnedOrder,
+          metadata: existingChat?.metadata
         };
 
         this.saveChats();
@@ -385,15 +1248,26 @@ class ClawGPT {
   }
 
   newChat() {
+    // Trigger summary for the chat we're leaving
+    if (this.currentChatId) {
+      this.maybeGenerateSummary(this.currentChatId);
+    }
+    
     this.currentChatId = null;
     this.elements.welcome.style.display = 'flex';
     this.renderMessages();
     this.renderChatList();
+    this.updateChatTokens();
     this.elements.messageInput.focus();
     this.elements.sidebar.classList.remove('open');
   }
 
   selectChat(chatId) {
+    // Trigger summary for the chat we're leaving (if applicable)
+    if (this.currentChatId && this.currentChatId !== chatId) {
+      this.maybeGenerateSummary(this.currentChatId);
+    }
+    
     this.currentChatId = chatId;
     this.renderMessages();
     this.renderChatList();
@@ -598,14 +1472,16 @@ class ClawGPT {
   renderChatItem(id, chat, isPinned) {
     const isActive = id === this.currentChatId;
     const pinTitle = isPinned ? 'Unpin' : 'Pin';
+    const hasSummary = chat.metadata?.summary;
     const pinIcon = `<svg class="pin-icon ${isPinned ? 'pinned' : ''}" viewBox="0 0 24 24" fill="${isPinned ? 'currentColor' : 'none'}" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
       <line x1="12" y1="17" x2="12" y2="22"/>
       <path d="M5 17h14v-1.76a2 2 0 0 0-1.11-1.79l-1.78-.9A2 2 0 0 1 15 10.76V6h1a2 2 0 0 0 0-4H8a2 2 0 0 0 0 4h1v4.76a2 2 0 0 1-1.11 1.79l-1.78.9A2 2 0 0 0 5 15.24Z"/>
     </svg>`;
+    const summaryIndicator = hasSummary ? `<span class="summary-indicator" title="${this.escapeHtml(chat.metadata.summary)}">✨</span>` : '';
     
     return `
       <div class="chat-item ${isActive ? 'active' : ''} ${isPinned ? 'pinned' : ''}" data-id="${id}" data-pinned="${isPinned}" draggable="true">
-        <span class="chat-title">${this.escapeHtml(chat.title)}</span>
+        <span class="chat-title">${summaryIndicator}${this.escapeHtml(chat.title)}</span>
         <div class="chat-actions">
           <button class="pin-btn" data-id="${id}" title="${pinTitle}">${pinIcon}</button>
           <button class="delete-btn" data-id="${id}">&times;</button>
@@ -638,6 +1514,9 @@ class ClawGPT {
         </div>
       `;
     }).join('');
+    
+    // Update conversation token total
+    this.updateChatTokens();
 
     // Add streaming indicator if needed
     if (this.streaming) {
@@ -731,6 +1610,9 @@ class ClawGPT {
     this.renderMessages();
 
     try {
+      // Track input tokens
+      this.addTokens(this.estimateTokens(text));
+      
       await this.request('chat.send', {
         sessionKey: this.sessionKey,
         message: text,
@@ -767,23 +1649,52 @@ class ClawGPT {
   handleChatEvent(payload) {
     if (!payload) return;
 
+    const state = payload.state;
+    const content = this.extractContent(payload.message?.content);
+    
+    // Handle summary session responses
+    if (payload.sessionKey === '__clawgpt_summarizer') {
+      if ((state === 'final' || state === 'aborted') && content) {
+        this.handleSummaryResponse(content);
+      }
+      return;
+    }
+    
+    // Handle semantic search session responses
+    if (payload.sessionKey === '__clawgpt_semantic') {
+      if ((state === 'final' || state === 'aborted') && content) {
+        this.handleSemanticSearchResponse(content);
+      }
+      return;
+    }
+
     if (payload.sessionKey && payload.sessionKey !== this.sessionKey) {
       return; // Different session
     }
-
-    const state = payload.state;
-    const content = this.extractContent(payload.message?.content);
 
     if (state === 'delta' && content) {
       this.streamBuffer = content;
       this.updateStreamingMessage();
     } else if (state === 'final' || state === 'aborted' || state === 'error') {
+      console.log('Chat event ended:', { 
+        state, 
+        sessionKey: payload.sessionKey,
+        contentLength: content?.length, 
+        bufferLength: this.streamBuffer?.length,
+        wasStreaming: this.streaming 
+      });
+      if (!this.streaming) {
+        console.log('Ignoring duplicate end event - not streaming');
+        return;
+      }
       this.streaming = false;
       this.updateStreamingUI();
 
       if (state === 'error') {
         this.addAssistantMessage('Error: ' + (payload.errorMessage || 'Unknown error'));
       } else if (this.streamBuffer) {
+        // Track output tokens
+        this.addTokens(this.estimateTokens(this.streamBuffer));
         this.addAssistantMessage(this.streamBuffer);
       }
 
@@ -799,6 +1710,8 @@ class ClawGPT {
         contentDiv.innerHTML = this.formatContent(this.streamBuffer) || '<div class="typing-indicator"><span></span><span></span><span></span></div>';
       }
     }
+    // Update conversation token total (includes streaming)
+    this.updateChatTokens();
     this.scrollToBottom();
   }
 
@@ -814,6 +1727,147 @@ class ClawGPT {
     this.chats[this.currentChatId].updatedAt = Date.now();
     this.saveChats();
     this.renderMessages();
+    
+    // Check if we should generate/update summary
+    this.maybeGenerateSummary(this.currentChatId);
+  }
+
+  // ===== LAYER 2: SMART SUMMARIES =====
+  
+  needsSummary(chatId) {
+    const chat = this.chats[chatId];
+    if (!chat) return false;
+    
+    const messageCount = chat.messages.length;
+    const metadata = chat.metadata;
+    
+    // Need at least 3 exchanges (6 messages) to summarize
+    if (messageCount < 6) return false;
+    
+    // No metadata yet - needs summary
+    if (!metadata || !metadata.summary) return true;
+    
+    // Re-summarize if chat grew by 8+ messages since last summary
+    const lastCount = metadata.messageCountAtSummary || 0;
+    if (messageCount - lastCount >= 8) return true;
+    
+    return false;
+  }
+
+  maybeGenerateSummary(chatId) {
+    // Check if smart search is enabled
+    if (!this.smartSearch) return;
+    if (!this.connected) return;
+    if (!this.needsSummary(chatId)) return;
+    
+    // Don't summarize while streaming
+    if (this.streaming) return;
+    
+    // Debounce - wait a bit after last message
+    clearTimeout(this.summaryDebounceTimer);
+    this.summaryDebounceTimer = setTimeout(() => {
+      this.generateSummary(chatId);
+    }, 3000);
+  }
+
+  async generateSummary(chatId) {
+    const chat = this.chats[chatId];
+    if (!chat || !this.connected) return;
+    
+    // Build a condensed version of the chat for summarization
+    const condensed = chat.messages.map(m => {
+      const role = m.role === 'user' ? 'User' : 'AI';
+      // Truncate long messages
+      const content = m.content.length > 500 
+        ? m.content.slice(0, 500) + '...' 
+        : m.content;
+      return `${role}: ${content}`;
+    }).join('\n\n');
+    
+    const prompt = `Analyze this conversation and return ONLY a JSON object (no markdown, no explanation):
+
+${condensed}
+
+Return this exact JSON structure:
+{
+  "summary": "1-2 sentence summary of what was discussed/accomplished",
+  "topics": ["topic1", "topic2", "topic3"],
+  "entities": ["specific names", "projects", "technologies mentioned"],
+  "type": "coding|discussion|planning|debug|other"
+}`;
+
+    try {
+      console.log('Generating summary for chat:', chat.title);
+      
+      // Track summary prompt tokens
+      this.addTokens(this.estimateTokens(prompt));
+      
+      // Use a temporary session to avoid polluting main chat
+      const result = await this.request('chat.send', {
+        sessionKey: '__clawgpt_summarizer',
+        message: prompt,
+        deliver: false,
+        idempotencyKey: 'summary-' + chatId + '-' + Date.now()
+      });
+      
+      // The response comes via events, so we need to capture it differently
+      // For now, we'll use a simpler approach - wait for the response
+      this.pendingSummary = { chatId, startedAt: Date.now() };
+      
+    } catch (error) {
+      console.error('Failed to generate summary:', error);
+    }
+  }
+
+  handleSummaryResponse(content) {
+    if (!this.pendingSummary) return;
+    
+    // Track summary response tokens
+    this.addTokens(this.estimateTokens(content));
+    
+    const { chatId } = this.pendingSummary;
+    const chat = this.chats[chatId];
+    
+    if (!chat) {
+      this.pendingSummary = null;
+      return;
+    }
+    
+    try {
+      // Extract JSON from response (handle markdown code blocks)
+      let jsonStr = content;
+      const jsonMatch = content.match(/```(?:json)?\s*([\s\S]*?)```/);
+      if (jsonMatch) {
+        jsonStr = jsonMatch[1];
+      }
+      // Also try to find raw JSON object
+      const objMatch = jsonStr.match(/\{[\s\S]*\}/);
+      if (objMatch) {
+        jsonStr = objMatch[0];
+      }
+      
+      const metadata = JSON.parse(jsonStr);
+      
+      // Validate and normalize
+      chat.metadata = {
+        summary: metadata.summary || '',
+        topics: Array.isArray(metadata.topics) ? metadata.topics.slice(0, 10) : [],
+        entities: Array.isArray(metadata.entities) ? metadata.entities.slice(0, 10) : [],
+        type: ['coding', 'discussion', 'planning', 'debug', 'other'].includes(metadata.type) 
+          ? metadata.type : 'other',
+        messageCountAtSummary: chat.messages.length,
+        generatedAt: Date.now()
+      };
+      
+      this.saveChats();
+      this.renderChatList(); // Update UI to show summary indicator
+      console.log('Summary generated:', chat.metadata);
+      
+    } catch (error) {
+      console.error('Failed to parse summary response:', error, content);
+    }
+    
+    this.pendingSummary = null;
   }
 }
 

@@ -18,6 +18,13 @@
           </svg>
           New chat
         </button>
+        <div class="sidebar-search" id="sidebarSearch">
+          <svg class="sidebar-search-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <circle cx="11" cy="11" r="8"/>
+            <path d="m21 21-4.35-4.35"/>
+          </svg>
+          <input type="text" id="sidebarSearchInput" placeholder="Search chats...">
+        </div>
       </div>
       <div class="chat-list" id="chatList">
         <!-- Chat history items go here -->
@@ -44,6 +51,7 @@
           </svg>
         </button>
         <h1 class="title">ClawGPT</h1>
+        <div class="chat-tokens" id="chatTokens" title="Estimated tokens in this conversation"></div>
         <div class="status" id="status">Disconnected</div>
       </header>
 
@@ -78,6 +86,41 @@
     </main>
   </div>
 
+  <!-- Search Modal -->
+  <div class="modal" id="searchModal">
+    <div class="search-container">
+      <div class="search-header">
+        <div class="search-input-wrapper">
+          <svg class="search-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <circle cx="11" cy="11" r="8"/>
+            <path d="m21 21-4.35-4.35"/>
+          </svg>
+          <input type="text" id="searchInput" placeholder="Search all chats..." autocomplete="off">
+          <kbd class="search-hint">ESC</kbd>
+        </div>
+        <div class="search-filters">
+          <button class="filter-btn active" data-filter="all">All</button>
+          <button class="filter-btn" data-filter="user">My messages</button>
+          <button class="filter-btn" data-filter="assistant">AI responses</button>
+        </div>
+        <div class="search-ai-options">
+          <label class="search-toggle" title="Search AI-generated summaries and topics (uses tokens)">
+            <input type="checkbox" id="searchDeepToggle">
+            <span class="toggle-label">Deep Search</span>
+          </label>
+          <label class="search-toggle" title="Find conceptually related chats even without keyword match (uses more tokens)">
+            <input type="checkbox" id="searchDeeperToggle">
+            <span class="toggle-label">Deeper Search</span>
+          </label>
+          <span class="search-ai-hint">Not finding it? Try Deep/Deeper search (uses AI tokens)</span>
+        </div>
+      </div>
+      <div class="search-results" id="searchResults">
+        <div class="search-empty">Start typing to search...</div>
+      </div>
+    </div>
+  </div>
+
   <!-- Settings Modal -->
   <div class="modal" id="settingsModal">
     <div class="modal-content">
@@ -104,7 +147,33 @@
             Dark Mode
           </label>
         </div>
-        <button class="connect-btn" id="connectBtn">Connect</button>
+        <div class="settings-divider"></div>
+        <div class="settings-section-title">AI Features</div>
+        <div class="form-group">
+          <label>
+            <input type="checkbox" id="smartSearch" checked>
+            Smart Search
+          </label>
+          <span class="setting-hint">Auto-generates chat summaries for better search (uses AI credits)</span>
+          <div class="sub-setting" id="semanticSearchSetting">
+            <label>
+              <input type="checkbox" id="semanticSearch">
+              Semantic Search
+            </label>
+            <span class="setting-hint">Find conceptually related chats even without keyword match (uses AI credits per search)</span>
+          </div>
+        </div>
+        <div class="form-group">
+          <label>
+            <input type="checkbox" id="showTokens">
+            Show Message Tokens
+          </label>
+          <span class="setting-hint">Display estimated token count per message</span>
+        </div>
+        <div class="settings-actions">
+          <button class="save-btn" id="saveSettingsBtn">Save</button>
+          <button class="connect-btn" id="connectBtn">Connect</button>
+        </div>
       </div>
     </div>
   </div>
