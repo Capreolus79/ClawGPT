@@ -1523,7 +1523,9 @@ window.CLAWGPT_CONFIG = {
     console.log('E2E encryption established! Verification:', verifyCode);
     
     // Update status to show connected
+    console.log('[Relay] About to call setStatus Connected');
     this.setStatus('Connected', true);
+    console.log('[Relay] Called setStatus Connected');
     
     // Update the UI to show connected + verification code
     const urlDisplay = document.getElementById('mobileUrl');
@@ -3084,6 +3086,11 @@ Example: [0, 2, 5]`;
   }
 
   setStatus(text, isConnected = false) {
+    console.log('[Status]', text, 'connected:', isConnected, 'element:', this.elements.status);
+    if (!this.elements.status) {
+      console.error('[Status] status element not found!');
+      return;
+    }
     this.elements.status.textContent = text;
     this.elements.status.classList.toggle('connected', isConnected);
   }
