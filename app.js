@@ -438,6 +438,13 @@ class ClawGPT {
     // Sync existing chats to clawgpt-memory (background)
     this.syncMemoryStorage();
     
+    // Check if joining relay as client (phone scanned QR)
+    if (this.pendingRelayJoin) {
+      this.joinRelayAsClient(this.pendingRelayJoin);
+      delete this.pendingRelayJoin;
+      return; // Don't auto-connect to gateway - we'll get connection through relay
+    }
+    
     // Check if we need to show setup wizard
     if (!this.hasConfigFile && !this.authToken) {
       // Try connecting without auth first - many local setups don't require it
@@ -583,6 +590,18 @@ class ClawGPT {
       // Clean up URL to remove sensitive params
       const cleanUrl = window.location.pathname;
       window.history.replaceState({}, document.title, cleanUrl);
+    }
+    
+    // Check for relay connection params (phone joining via QR code)
+    const relayServer = urlParams.get('relay');
+    const relayChannel = urlParams.get('channel');
+    const relayPubkey = urlParams.get('pubkey');
+    
+    if (relayServer && relayChannel && relayPubkey) {
+      // Store for later connection after init completes
+      this.pendingRelayJoin = { server: relayServer, channel: relayChannel, pubkey: relayPubkey };
+      // Clean URL
+      window.history.replaceState({}, document.title, window.location.pathname);
     }
   }
 
@@ -994,11 +1013,16 @@ window.CLAWGPT_CONFIG = {
     this.chats = await this.storage.loadAll();
   }
 
-  saveChats() {
+  saveChats(broadcastChatId = null) {
     // Fire and forget - don't await to keep UI responsive
     this.storage.saveAll(this.chats).catch(err => {
       console.error('Failed to save chats:', err);
     });
+    
+    // Broadcast to connected peer if relay is active
+    if (broadcastChatId && this.relayEncrypted) {
+      this.broadcastChatUpdate(broadcastChatId);
+    }
   }
   
   // Export all chats to a JSON file
@@ -1132,7 +1156,9 @@ window.CLAWGPT_CONFIG = {
       
       // Build mobile URL with relay info + our public key (NOT the auth token!)
       // The auth token will be sent encrypted after key exchange
-      const mobileUrl = `clawgpt://relay?server=${encodeURIComponent(relayUrl)}&channel=${channelId}&pubkey=${encodeURIComponent(publicKey)}`;
+      // Use web URL so it works in both browser and native app (app can intercept via intent filter)
+      const webBase = window.location.origin + window.location.pathname;
+      const mobileUrl = `${webBase}?relay=${encodeURIComponent(relayUrl)}&channel=${channelId}&pubkey=${encodeURIComponent(publicKey)}`;
       
       // Update display - show waiting for phone
       if (urlDisplay) {
@@ -1237,6 +1263,202 @@ window.CLAWGPT_CONFIG = {
     });
   }
   
+  // Join relay as client (phone side - scanned QR code)
+  async joinRelayAsClient({ server, channel, pubkey }) {
+    console.log('Joining relay as client:', { server, channel });
+    
+    this.updateStatus('Connecting to relay...');
+    
+    // Initialize crypto
+    if (typeof RelayCrypto === 'undefined') {
+      this.showToast('Relay crypto not available', true);
+      return;
+    }
+    
+    this.relayCrypto = new RelayCrypto();
+    this.relayCrypto.generateKeyPair();
+    
+    // Set host's public key and derive shared secret immediately
+    if (!this.relayCrypto.setPeerPublicKey(pubkey)) {
+      this.showToast('Invalid host public key', true);
+      return;
+    }
+    
+    // Connect to relay channel
+    const wsUrl = server.replace('https://', 'wss://').replace('http://', 'ws://');
+    const channelUrl = `${wsUrl}/channel/${channel}`;
+    
+    try {
+      this.relayWs = new WebSocket(channelUrl);
+    } catch (e) {
+      this.showToast('Failed to connect to relay', true);
+      return;
+    }
+    
+    this.relayWs.onopen = () => {
+      console.log('Connected to relay channel as client');
+      
+      // Send our public key to complete key exchange
+      this.relayWs.send(JSON.stringify({
+        type: 'keyexchange',
+        publicKey: this.relayCrypto.getPublicKey()
+      }));
+      
+      // Mark as encrypted (we already derived shared secret from host's pubkey in QR)
+      this.relayEncrypted = true;
+      
+      // Show verification code
+      const verifyCode = this.relayCrypto.getVerificationCode();
+      console.log('E2E encryption established! Verification:', verifyCode);
+      
+      this.updateStatus('Secure relay connected');
+      this.showToast(`Secure connection! Verify: ${verifyCode}`, 5000);
+      
+      // Display verification in UI
+      this.showRelayClientStatus(verifyCode);
+      
+      // Send our chat metadata to sync
+      this.sendChatSyncMeta();
+    };
+    
+    this.relayWs.onmessage = (event) => {
+      try {
+        const msg = JSON.parse(event.data);
+        
+        // Handle relay control messages
+        if (msg.type === 'relay') {
+          if (msg.event === 'channel.joined') {
+            console.log('Joined relay channel:', msg);
+          } else if (msg.event === 'host.disconnected') {
+            this.showToast('Desktop disconnected', true);
+            this.updateStatus('Host disconnected');
+          } else if (msg.event === 'error') {
+            this.showToast(msg.error || 'Relay error', true);
+          }
+          return;
+        }
+        
+        // Handle encrypted messages
+        if (msg.type === 'encrypted' && this.relayEncrypted) {
+          const decrypted = this.relayCrypto.openEnvelope(msg);
+          if (decrypted) {
+            this.handleRelayClientMessage(decrypted);
+          } else {
+            console.error('Failed to decrypt relay message');
+          }
+          return;
+        }
+      } catch (e) {
+        console.error('Relay message parse error:', e);
+      }
+    };
+    
+    this.relayWs.onerror = (error) => {
+      console.error('Relay error:', error);
+      this.showToast('Relay connection error', true);
+    };
+    
+    this.relayWs.onclose = () => {
+      console.log('Relay connection closed');
+      this.relayWs = null;
+      this.relayEncrypted = false;
+      this.updateStatus('Relay disconnected');
+      if (this.relayCrypto) {
+        this.relayCrypto.destroy();
+        this.relayCrypto = null;
+      }
+    };
+  }
+  
+  // Handle messages received as relay client (phone side)
+  handleRelayClientMessage(msg) {
+    // Handle sync messages (same as host)
+    if (msg.type === 'sync-meta') {
+      this.handleSyncMeta(msg);
+      return;
+    }
+    if (msg.type === 'sync-request') {
+      this.handleSyncRequest(msg);
+      return;
+    }
+    if (msg.type === 'sync-data') {
+      this.handleSyncData(msg);
+      return;
+    }
+    if (msg.type === 'chat-update') {
+      this.handleChatUpdate(msg);
+      return;
+    }
+    
+    // Handle auth info from desktop (gateway URL + token)
+    if (msg.type === 'auth') {
+      console.log('Received gateway auth from desktop');
+      this.gatewayUrl = msg.gatewayUrl;
+      this.authToken = msg.token;
+      this.saveSettings();
+      
+      // Now connect to gateway through the desktop (relay forwards our messages)
+      this.connectViaRelay();
+      return;
+    }
+    
+    // Handle gateway responses forwarded from desktop
+    if (msg.type === 'gateway-response') {
+      // Reuse the normal gateway message handler
+      this.handleMessage(msg.data);
+      return;
+    }
+  }
+  
+  // Connect to gateway through relay (phone side)
+  connectViaRelay() {
+    console.log('Connecting to gateway via relay proxy...');
+    this.updateStatus('Connecting...');
+    
+    // The phone sends messages to relay, desktop forwards to gateway
+    // We'll use the relay as our "WebSocket" to gateway
+    this.connected = true;
+    this.relayIsGatewayProxy = true;
+    
+    // Authenticate with gateway (desktop will forward this)
+    this.sendViaRelay({
+      type: 'req',
+      id: this.generateId(),
+      method: 'connect',
+      params: {
+        minProtocol: 3,
+        maxProtocol: 3,
+        client: { id: 'clawgpt-mobile', version: '0.1.0' },
+        role: 'operator',
+        scopes: [],
+        auth: { token: this.authToken }
+      }
+    });
+  }
+  
+  // Send message to gateway via relay (phone side)
+  sendViaRelay(gatewayMsg) {
+    if (!this.relayEncrypted || !this.relayWs) {
+      console.error('Relay not connected');
+      return;
+    }
+    
+    this.sendRelayMessage({
+      type: 'gateway-request',
+      data: gatewayMsg
+    });
+  }
+  
+  // Show relay client status in UI
+  showRelayClientStatus(verifyCode) {
+    // Update status area or show a banner
+    const statusEl = document.getElementById('status');
+    if (statusEl) {
+      statusEl.innerHTML = `<span style="color: var(--accent-color);">Secure</span> <code style="font-size: 0.8em;">${verifyCode}</code>`;
+      statusEl.title = 'Connected via encrypted relay. Verify this code matches your desktop.';
+    }
+  }
+  
   handleRelayKeyExchange(peerPublicKey) {
     console.log('Received public key from phone, completing key exchange...');
     
@@ -1272,13 +1494,213 @@ window.CLAWGPT_CONFIG = {
       token: this.authToken,
       gatewayUrl: this.gatewayUrl
     });
+    
+    // Start chat history sync
+    this.sendChatSyncMeta();
+  }
+  
+  // === Chat History Sync ===
+  
+  sendChatSyncMeta() {
+    // Send metadata about our chats so the other side can request what it needs
+    const meta = {};
+    for (const [id, chat] of Object.entries(this.chats)) {
+      meta[id] = {
+        updatedAt: chat.updatedAt || chat.createdAt || 0,
+        messageCount: chat.messages?.length || 0
+      };
+    }
+    
+    this.sendRelayMessage({
+      type: 'sync-meta',
+      chats: meta,
+      deviceId: this.getDeviceId()
+    });
+    
+    console.log(`[Sync] Sent metadata for ${Object.keys(meta).length} chats`);
+  }
+  
+  getDeviceId() {
+    // Simple device identifier to prevent echo
+    if (!this._deviceId) {
+      this._deviceId = localStorage.getItem('clawgpt-device-id');
+      if (!this._deviceId) {
+        this._deviceId = 'dev-' + Math.random().toString(36).substring(2, 10);
+        localStorage.setItem('clawgpt-device-id', this._deviceId);
+      }
+    }
+    return this._deviceId;
+  }
+  
+  handleSyncMeta(msg) {
+    // Compare their metadata with ours and request chats we need
+    const theirMeta = msg.chats || {};
+    const theirDeviceId = msg.deviceId;
+    
+    // Don't process our own messages
+    if (theirDeviceId === this.getDeviceId()) return;
+    
+    const needChats = [];
+    
+    for (const [id, theirInfo] of Object.entries(theirMeta)) {
+      const ourChat = this.chats[id];
+      const ourUpdatedAt = ourChat?.updatedAt || ourChat?.createdAt || 0;
+      
+      // Request if we don't have it or theirs is newer
+      if (!ourChat || theirInfo.updatedAt > ourUpdatedAt) {
+        needChats.push(id);
+      }
+    }
+    
+    if (needChats.length > 0) {
+      console.log(`[Sync] Requesting ${needChats.length} chats from peer`);
+      this.sendRelayMessage({
+        type: 'sync-request',
+        chatIds: needChats,
+        deviceId: this.getDeviceId()
+      });
+    } else {
+      console.log('[Sync] Already up to date');
+    }
+  }
+  
+  handleSyncRequest(msg) {
+    const requestedIds = msg.chatIds || [];
+    const theirDeviceId = msg.deviceId;
+    
+    if (theirDeviceId === this.getDeviceId()) return;
+    
+    // Send the requested chats
+    const chatsToSend = {};
+    for (const id of requestedIds) {
+      if (this.chats[id]) {
+        chatsToSend[id] = this.chats[id];
+      }
+    }
+    
+    if (Object.keys(chatsToSend).length > 0) {
+      console.log(`[Sync] Sending ${Object.keys(chatsToSend).length} chats to peer`);
+      this.sendRelayMessage({
+        type: 'sync-data',
+        chats: chatsToSend,
+        deviceId: this.getDeviceId()
+      });
+    }
+  }
+  
+  handleSyncData(msg) {
+    const incomingChats = msg.chats || {};
+    const theirDeviceId = msg.deviceId;
+    
+    if (theirDeviceId === this.getDeviceId()) return;
+    
+    let merged = 0;
+    for (const [id, chat] of Object.entries(incomingChats)) {
+      const ourChat = this.chats[id];
+      const ourUpdatedAt = ourChat?.updatedAt || ourChat?.createdAt || 0;
+      const theirUpdatedAt = chat.updatedAt || chat.createdAt || 0;
+      
+      // Only merge if theirs is newer or we don't have it
+      if (!ourChat || theirUpdatedAt > ourUpdatedAt) {
+        this.chats[id] = chat;
+        merged++;
+      }
+    }
+    
+    if (merged > 0) {
+      console.log(`[Sync] Merged ${merged} chats from peer`);
+      this.saveChats();
+      this.renderChatList();
+      
+      // Refresh current chat if it was updated
+      if (this.currentChatId && incomingChats[this.currentChatId]) {
+        this.renderMessages();
+      }
+      
+      this.showToast(`Synced ${merged} chat${merged > 1 ? 's' : ''} from other device`);
+    }
+  }
+  
+  handleChatUpdate(msg) {
+    const chat = msg.chat;
+    const theirDeviceId = msg.deviceId;
+    
+    if (theirDeviceId === this.getDeviceId()) return;
+    if (!chat || !chat.id) return;
+    
+    const ourChat = this.chats[chat.id];
+    const ourUpdatedAt = ourChat?.updatedAt || ourChat?.createdAt || 0;
+    const theirUpdatedAt = chat.updatedAt || chat.createdAt || 0;
+    
+    if (!ourChat || theirUpdatedAt > ourUpdatedAt) {
+      this.chats[chat.id] = chat;
+      this.saveChats();
+      this.renderChatList();
+      
+      if (this.currentChatId === chat.id) {
+        this.renderMessages();
+      }
+      
+      console.log(`[Sync] Real-time update for chat: ${chat.title || chat.id}`);
+    }
+  }
+  
+  // Broadcast chat update to connected peer
+  broadcastChatUpdate(chatId) {
+    if (!this.relayEncrypted || !this.relayWs) return;
+    
+    const chat = this.chats[chatId];
+    if (!chat) return;
+    
+    this.sendRelayMessage({
+      type: 'chat-update',
+      chat: chat,
+      deviceId: this.getDeviceId()
+    });
   }
   
   handleRelayMessage(msg) {
-    // Forward messages from mobile client to gateway
+    // Handle sync messages
+    if (msg.type === 'sync-meta') {
+      this.handleSyncMeta(msg);
+      return;
+    }
+    if (msg.type === 'sync-request') {
+      this.handleSyncRequest(msg);
+      return;
+    }
+    if (msg.type === 'sync-data') {
+      this.handleSyncData(msg);
+      return;
+    }
+    if (msg.type === 'chat-update') {
+      this.handleChatUpdate(msg);
+      return;
+    }
+    
+    // Handle gateway request from phone (desktop proxies to gateway)
+    if (msg.type === 'gateway-request' && msg.data) {
+      // Forward to gateway
+      if (this.ws && this.ws.readyState === WebSocket.OPEN) {
+        this.ws.send(JSON.stringify(msg.data));
+      }
+      return;
+    }
+    
+    // Forward other messages from mobile client to gateway (legacy support)
     if (this.ws && this.ws.readyState === WebSocket.OPEN) {
       this.ws.send(JSON.stringify(msg));
     }
+  }
+  
+  // Forward gateway response to phone via relay
+  forwardToRelay(gatewayMsg) {
+    if (!this.relayEncrypted || !this.relayWs) return;
+    
+    this.sendRelayMessage({
+      type: 'gateway-response',
+      data: gatewayMsg
+    });
   }
   
   sendRelayMessage(msg) {
@@ -2483,9 +2905,9 @@ Example: [0, 2, 5]`;
   }
 
   handleMessage(msg) {
-    // Forward to relay if connected (for mobile clients) - encrypted
-    if (this.relayWs && this.relayWs.readyState === WebSocket.OPEN && this.relayEncrypted) {
-      this.sendRelayMessage(msg);
+    // Forward to relay if connected (for mobile clients) - but not if we ARE the mobile client
+    if (this.relayWs && this.relayWs.readyState === WebSocket.OPEN && this.relayEncrypted && !this.relayIsGatewayProxy) {
+      this.forwardToRelay(msg);
     }
     
     // Handle challenge
@@ -2575,7 +2997,11 @@ Example: [0, 2, 5]`;
   }
 
   async request(method, params) {
-    if (!this.ws || this.ws.readyState !== WebSocket.OPEN) {
+    // Check connection - either direct WS or via relay proxy
+    const directConnected = this.ws && this.ws.readyState === WebSocket.OPEN;
+    const relayConnected = this.relayIsGatewayProxy && this.relayWs && this.relayWs.readyState === WebSocket.OPEN;
+    
+    if (!directConnected && !relayConnected) {
       throw new Error('Not connected');
     }
 
@@ -2584,7 +3010,14 @@ Example: [0, 2, 5]`;
 
     return new Promise((resolve, reject) => {
       this.pendingRequests.set(id, { resolve, reject });
-      this.ws.send(JSON.stringify(msg));
+      
+      if (this.relayIsGatewayProxy) {
+        // Send via relay to desktop, which forwards to gateway
+        this.sendViaRelay(msg);
+      } else {
+        // Direct WebSocket connection
+        this.ws.send(JSON.stringify(msg));
+      }
 
       // Timeout
       setTimeout(() => {
@@ -4446,7 +4879,7 @@ Example: [0, 2, 5]`;
     }
     this.chats[this.currentChatId].messages.push(userMsg);
     this.chats[this.currentChatId].updatedAt = Date.now();
-    this.saveChats();
+    this.saveChats(this.currentChatId);  // Broadcast to peer
     
     // Store in clawgpt-memory for search
     const chat = this.chats[this.currentChatId];
@@ -4587,7 +5020,7 @@ Example: [0, 2, 5]`;
     };
     this.chats[this.currentChatId].messages.push(assistantMsg);
     this.chats[this.currentChatId].updatedAt = Date.now();
-    this.saveChats();
+    this.saveChats(this.currentChatId);  // Broadcast to peer
     
     // Store in clawgpt-memory for search
     const chat = this.chats[this.currentChatId];

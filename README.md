@@ -259,6 +259,21 @@ PRs welcome! Ideas for contribution:
 - Code syntax highlighting
 - PWA/offline support
 
+## 📱 Mobile Apps
+
+### Android
+
+Native Android wrapper available: [ClawGPT for Android](https://github.com/craihub/clawgpt-app)
+
+- Install the APK directly (no Play Store needed)
+- Scan QR code from desktop to connect
+- End-to-end encrypted relay connection
+- Chat history syncs automatically between devices
+
+### iOS
+
+Coming soon. For now, use Safari and "Add to Home Screen" for a PWA-like experience.
+
 ## 📄 License
 
 MIT — do whatever you want with it.
