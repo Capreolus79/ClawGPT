@@ -561,12 +561,26 @@ class ClawGPT {
     // Token tracking
     this.tokenCount = parseInt(localStorage.getItem('clawgpt-tokens') || '0');
     
-    // Check URL params for token (allows one-time setup links)
+    // Check URL params for token and gateway (allows one-time setup links, especially from mobile QR)
     const urlParams = new URLSearchParams(window.location.search);
     const urlToken = urlParams.get('token');
+    const urlGateway = urlParams.get('gateway');
+    
+    let urlChanged = false;
+    
     if (urlToken && !this.hasConfigFile) {
       this.authToken = urlToken;
+      urlChanged = true;
+    }
+    
+    if (urlGateway && !this.hasConfigFile) {
+      this.gatewayUrl = urlGateway;
+      urlChanged = true;
+    }
+    
+    if (urlChanged) {
       this.saveSettings();
+      // Clean up URL to remove sensitive params
       const cleanUrl = window.location.pathname;
       window.history.replaceState({}, document.title, cleanUrl);
     }
@@ -1056,29 +1070,31 @@ window.CLAWGPT_CONFIG = {
     
     if (!qrContainer) return;
     
-    // Build the URL with token
+    // Build the web UI URL
     const protocol = window.location.protocol;
     const host = window.location.hostname;
     const port = window.location.port;
+    let webUrl = `${protocol}//${host}${port ? ':' + port : ''}`;
     
-    // If localhost, try to get LAN IP (will need to be set manually or use a fallback)
-    let mobileUrl;
-    if (host === 'localhost' || host === '127.0.0.1') {
-      // Show instructions to find LAN IP
-      mobileUrl = `${protocol}//${host}${port ? ':' + port : ''}`;
-      if (urlDisplay) {
-        urlDisplay.innerHTML = `<strong>Current URL:</strong> ${mobileUrl}<br><small>For mobile access, use your computer's local IP instead of localhost</small>`;
-      }
-    } else {
-      mobileUrl = `${protocol}//${host}${port ? ':' + port : ''}`;
-      if (urlDisplay) {
-        urlDisplay.textContent = mobileUrl;
-      }
+    // Build the gateway URL for mobile
+    let gatewayUrl = this.gatewayUrl || 'ws://127.0.0.1:18789';
+    
+    // If gateway is localhost, replace with the web host (for same-network access)
+    if (gatewayUrl.includes('localhost') || gatewayUrl.includes('127.0.0.1')) {
+      // Extract the port from gateway URL
+      const gatewayPort = gatewayUrl.match(/:(\d+)$/)?.[1] || '18789';
+      gatewayUrl = `ws://${host}:${gatewayPort}`;
     }
     
-    // Add token to URL if we have one
+    // Build mobile URL with both gateway and token
+    let mobileUrl = `${webUrl}?gateway=${encodeURIComponent(gatewayUrl)}`;
     if (this.authToken) {
-      mobileUrl += `?token=${encodeURIComponent(this.authToken)}`;
+      mobileUrl += `&token=${encodeURIComponent(this.authToken)}`;
+    }
+    
+    // Update display
+    if (urlDisplay) {
+      urlDisplay.innerHTML = `<strong>Gateway:</strong> ${gatewayUrl}<br><strong>Web:</strong> ${webUrl}`;
     }
     
     // Hide placeholder, show QR
