@@ -1067,9 +1067,21 @@ window.CLAWGPT_CONFIG = {
     const qrContainer = document.getElementById('qrCode');
     const placeholder = document.getElementById('qrPlaceholder');
     const urlDisplay = document.getElementById('mobileUrl');
+    const relayToggle = document.getElementById('relayModeToggle');
     
     if (!qrContainer) return;
     
+    // Check if relay mode is enabled
+    const useRelay = relayToggle?.checked || false;
+    
+    if (useRelay) {
+      this.showRelayQR(qrContainer, placeholder, urlDisplay);
+    } else {
+      this.showLocalQR(qrContainer, placeholder, urlDisplay);
+    }
+  }
+  
+  showLocalQR(qrContainer, placeholder, urlDisplay) {
     // Build the web UI URL
     const protocol = window.location.protocol;
     const host = window.location.hostname;
@@ -1094,9 +1106,108 @@ window.CLAWGPT_CONFIG = {
     
     // Update display
     if (urlDisplay) {
-      urlDisplay.innerHTML = `<strong>Gateway:</strong> ${gatewayUrl}<br><strong>Web:</strong> ${webUrl}`;
+      urlDisplay.innerHTML = `<strong>Mode:</strong> Local Network<br><strong>Gateway:</strong> ${gatewayUrl}`;
     }
     
+    this.renderQRCode(qrContainer, placeholder, mobileUrl);
+  }
+  
+  async showRelayQR(qrContainer, placeholder, urlDisplay) {
+    // Show loading state
+    if (urlDisplay) {
+      urlDisplay.innerHTML = '<strong>Mode:</strong> Remote Relay<br><em>Connecting to relay...</em>';
+    }
+    qrContainer.innerHTML = '<p style="color: var(--text-muted);">Connecting to relay...</p>';
+    if (placeholder) placeholder.style.display = 'none';
+    qrContainer.style.display = 'block';
+    
+    try {
+      // Connect to relay and get channel ID
+      const relayUrl = this.relayServerUrl || 'wss://clawgpt-relay.fly.dev';
+      const channelId = await this.connectToRelay(relayUrl);
+      
+      // Build mobile URL with relay info
+      const mobileUrl = `clawgpt://relay?server=${encodeURIComponent(relayUrl)}&channel=${channelId}&token=${encodeURIComponent(this.authToken || '')}`;
+      
+      // Update display
+      if (urlDisplay) {
+        urlDisplay.innerHTML = `<strong>Mode:</strong> Remote Relay<br><strong>Channel:</strong> ${channelId}<br><span style="color: var(--accent-color);">Works from anywhere!</span>`;
+      }
+      
+      this.renderQRCode(qrContainer, placeholder, mobileUrl);
+      
+    } catch (error) {
+      console.error('Relay connection failed:', error);
+      if (urlDisplay) {
+        urlDisplay.innerHTML = `<strong>Mode:</strong> Remote Relay<br><span style="color: #e74c3c;">Failed: ${error.message}</span>`;
+      }
+      qrContainer.innerHTML = '<p style="color: #e74c3c;">Relay connection failed</p>';
+    }
+  }
+  
+  connectToRelay(relayUrl) {
+    return new Promise((resolve, reject) => {
+      // Close existing relay connection
+      if (this.relayWs) {
+        this.relayWs.close();
+      }
+      
+      const wsUrl = relayUrl.replace(/^http/, 'ws') + '/new';
+      console.log('Connecting to relay:', wsUrl);
+      
+      this.relayWs = new WebSocket(wsUrl);
+      
+      this.relayWs.onopen = () => {
+        console.log('Relay connected, waiting for channel ID...');
+      };
+      
+      this.relayWs.onmessage = (event) => {
+        try {
+          const msg = JSON.parse(event.data);
+          if (msg.type === 'relay' && msg.event === 'channel.created') {
+            console.log('Relay channel created:', msg.channelId);
+            this.relayChannelId = msg.channelId;
+            resolve(msg.channelId);
+          } else if (msg.type === 'relay' && msg.event === 'client.connected') {
+            console.log('Mobile client connected via relay');
+            this.showToast('Mobile device connected!');
+          } else {
+            // Forward gateway messages
+            this.handleRelayMessage(msg);
+          }
+        } catch (e) {
+          console.error('Relay message parse error:', e);
+        }
+      };
+      
+      this.relayWs.onerror = (error) => {
+        console.error('Relay WebSocket error:', error);
+        reject(new Error('Connection failed'));
+      };
+      
+      this.relayWs.onclose = () => {
+        console.log('Relay connection closed');
+        this.relayWs = null;
+      };
+      
+      // Timeout
+      setTimeout(() => {
+        if (!this.relayChannelId) {
+          this.relayWs?.close();
+          reject(new Error('Timeout'));
+        }
+      }, 10000);
+    });
+  }
+  
+  handleRelayMessage(msg) {
+    // Forward messages from mobile client to gateway
+    if (this.ws && this.ws.readyState === WebSocket.OPEN) {
+      this.ws.send(JSON.stringify(msg));
+    }
+  }
+  
+  renderQRCode(qrContainer, placeholder, data) {
     // Hide placeholder, show QR
     if (placeholder) placeholder.style.display = 'none';
     qrContainer.style.display = 'block';
@@ -1105,7 +1216,7 @@ window.CLAWGPT_CONFIG = {
     // Generate QR code
     if (typeof QRCode !== 'undefined') {
       new QRCode(qrContainer, {
-        text: mobileUrl,
+        text: data,
         width: 160,
         height: 160,
         colorDark: '#000000',
