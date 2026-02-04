@@ -2944,30 +2944,11 @@ window.CLAWGPT_CONFIG = {
       };
     }
     
-    // Add user message
-    const userMsg = {
-      id: 'msg-' + Date.now(),
-      role: 'user',
-      content: content,
-      timestamp: Date.now()
-    };
-    this.chats[chatId].messages.push(userMsg);
-    this.chats[chatId].updatedAt = Date.now();
-    
-    // Broadcast update to phone
-    this.sendRelayMessage({
-      type: 'chat-update',
-      chatId: chatId,
-      message: userMsg
-    });
-    
-    // Switch to this chat and send to gateway
+    // Switch to this chat - sendMessage will add the user message
     this.currentChatId = chatId;
-    this.saveChats();
-    this.renderChatList();
-    this.renderMessages();
     
-    // Send to gateway
+    // Send to gateway (this adds the user message to chat)
+    // Don't broadcast user message back to phone - phone already has it
     this.sendMessage(content);
   }
   
@@ -4353,10 +4334,8 @@ Example: [0, 2, 5]`;
   }
 
   handleMessage(msg) {
-    // Forward to relay if connected (for mobile clients) - but not if we ARE the mobile client
-    if (this.relayWs && this.relayWs.readyState === WebSocket.OPEN && this.relayEncrypted && !this.relayIsGatewayProxy) {
-      this.forwardToRelay(msg);
-    }
+    // Note: Don't forward raw gateway messages to phone - phone is thin client
+    // Phone will receive chat-update when assistant message is complete
     
     // Handle challenge
     if (msg.type === 'event' && msg.event === 'connect.challenge') {
