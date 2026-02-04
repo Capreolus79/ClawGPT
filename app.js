@@ -6415,6 +6415,20 @@ Example: [0, 2, 5]`;
     if (state === 'delta' && content) {
       this.streamBuffer = content;
       this.updateStreamingMessage();
+      
+      // Forward streaming to phone (throttled to 100ms)
+      if (this.relayEncrypted && this.currentChatId) {
+        const now = Date.now();
+        if (!this.lastStreamingRelay || now - this.lastStreamingRelay >= 100) {
+          this.lastStreamingRelay = now;
+          this.sendRelayMessage({
+            type: 'chat-update',
+            chatId: this.currentChatId,
+            streaming: true,
+            content: this.streamBuffer
+          });
+        }
+      }
     } else if (state === 'final' || state === 'aborted' || state === 'error') {
       if (!this.streaming) {
         console.log('Ignoring duplicate end event - not streaming');
