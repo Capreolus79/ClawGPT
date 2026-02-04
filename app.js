@@ -2693,23 +2693,35 @@ window.CLAWGPT_CONFIG = {
   
   // === Chat History Sync ===
   
-  sendChatSyncMeta() {
-    // Send metadata about our chats so the other side can request what it needs
-    const meta = {};
+  // SIMPLIFIED: Send full state to phone (phone is thin client)
+  sendFullState() {
+    // Send all chats with messages - phone will just display them
+    const state = {
+      chats: {},
+      currentChatId: this.currentChatId
+    };
+    
     for (const [id, chat] of Object.entries(this.chats)) {
-      meta[id] = {
-        updatedAt: chat.updatedAt || chat.createdAt || 0,
-        messageCount: chat.messages?.length || 0
+      state.chats[id] = {
+        id: chat.id,
+        title: chat.title,
+        createdAt: chat.createdAt,
+        updatedAt: chat.updatedAt,
+        messages: chat.messages || []
       };
     }
     
     this.sendRelayMessage({
-      type: 'sync-meta',
-      chats: meta,
-      deviceId: this.getDeviceId()
+      type: 'full-state',
+      state: state
     });
     
-    console.log(`[Sync] Sent metadata for ${Object.keys(meta).length} chats`);
+    console.log(`[Relay] Sent full state: ${Object.keys(state.chats).length} chats`);
+  }
+  
+  // Legacy sync - keep for backwards compatibility but redirect to full state
+  sendChatSyncMeta() {
+    this.sendFullState();
   }
   
   getDeviceId() {
@@ -2870,17 +2882,31 @@ window.CLAWGPT_CONFIG = {
   }
   
   handleRelayMessage(msg) {
-    // Handle sync messages
-    if (msg.type === 'sync-meta') {
-      this.handleSyncMeta(msg);
+    // SIMPLIFIED PROTOCOL
+    
+    // Phone requests full state (on connect or reconnect)
+    if (msg.type === 'request-state') {
+      console.log('[Relay] Phone requested state');
+      this.sendFullState();
       return;
     }
-    if (msg.type === 'sync-request') {
-      this.handleSyncRequest(msg);
+    
+    // Phone sends a user message - forward to gateway
+    if (msg.type === 'user-message') {
+      console.log('[Relay] Received user message from phone');
+      // Create/update chat and forward to gateway
+      this.handlePhoneMessage(msg);
+      return;
+    }
+    
+    // Legacy sync messages - respond with full state instead
+    if (msg.type === 'sync-meta' || msg.type === 'sync-request') {
+      console.log('[Relay] Legacy sync request, sending full state');
+      this.sendFullState();
       return;
     }
     if (msg.type === 'sync-data') {
-      this.handleSyncData(msg);
+      // Ignore incoming sync-data in simplified mode
       return;
     }
     if (msg.type === 'chat-update') {
@@ -2901,6 +2927,48 @@ window.CLAWGPT_CONFIG = {
     if (this.ws && this.ws.readyState === WebSocket.OPEN) {
       this.ws.send(JSON.stringify(msg));
     }
+  }
+  
+  // Handle message from phone - create chat if needed and forward to gateway
+  handlePhoneMessage(msg) {
+    const { chatId, content } = msg;
+    
+    // Create chat if it doesn't exist
+    if (!this.chats[chatId]) {
+      this.chats[chatId] = {
+        id: chatId,
+        title: content.substring(0, 30) + (content.length > 30 ? '...' : ''),
+        createdAt: Date.now(),
+        updatedAt: Date.now(),
+        messages: []
+      };
+    }
+    
+    // Add user message
+    const userMsg = {
+      id: 'msg-' + Date.now(),
+      role: 'user',
+      content: content,
+      timestamp: Date.now()
+    };
+    this.chats[chatId].messages.push(userMsg);
+    this.chats[chatId].updatedAt = Date.now();
+    
+    // Broadcast update to phone
+    this.sendRelayMessage({
+      type: 'chat-update',
+      chatId: chatId,
+      message: userMsg
+    });
+    
+    // Switch to this chat and send to gateway
+    this.currentChatId = chatId;
+    this.saveChats();
+    this.renderChatList();
+    this.renderChat();
+    
+    // Send to gateway
+    this.sendMessage(content);
   }
   
   // Forward gateway response to phone via relay
@@ -6395,13 +6463,23 @@ Example: [0, 2, 5]`;
     if (!content || !content.trim()) return; // Skip empty messages
 
     const assistantMsg = {
+      id: 'msg-' + Date.now(),
       role: 'assistant',
       content: content,
       timestamp: Date.now()
     };
     this.chats[this.currentChatId].messages.push(assistantMsg);
     this.chats[this.currentChatId].updatedAt = Date.now();
-    this.saveChats(this.currentChatId);  // Broadcast to peer
+    this.saveChats(this.currentChatId);
+    
+    // Broadcast to phone via relay
+    if (this.relayEncrypted) {
+      this.sendRelayMessage({
+        type: 'chat-update',
+        chatId: this.currentChatId,
+        message: assistantMsg
+      });
+    }
     
     // Store in clawgpt-memory for search
     const chat = this.chats[this.currentChatId];
