@@ -6230,7 +6230,20 @@ Example: [0, 2, 5]`;
     const hasTextFiles = this.pendingTextFiles && this.pendingTextFiles.length > 0;
     
     // Need either text, images, or text files
-    if ((!text && !hasImages && !hasTextFiles) || !this.connected) return;
+    if (!text && !hasImages && !hasTextFiles) return;
+    
+    // If gateway is disconnected, try to reconnect
+    if (!this.connected) {
+      console.log('Gateway not connected, attempting reconnect...');
+      this.showToast('Reconnecting to gateway...', true);
+      await this.connect();
+      // If still not connected after attempt, bail
+      if (!this.connected) {
+        console.error('Failed to reconnect to gateway');
+        this.showToast('Gateway connection failed', true);
+        return;
+      }
+    }
 
     // Clear input
     this.elements.messageInput.value = '';
