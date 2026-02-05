@@ -1433,6 +1433,7 @@ class ClawGPT {
     const statusEl = document.getElementById('fileMemoryStatus');
     const enableBtn = document.getElementById('enableFileMemoryBtn');
     const syncBtn = document.getElementById('syncFileMemoryBtn');
+    const hintEl = document.getElementById('fileMemoryHint');
     
     if (this.fileMemoryStorage.isEnabled()) {
       if (statusEl) {
@@ -1440,12 +1441,14 @@ class ClawGPT {
       }
       if (enableBtn) enableBtn.textContent = 'Change Folder';
       if (syncBtn) syncBtn.style.display = 'inline-block';
+      if (hintEl) hintEl.style.display = 'none';
     } else {
       if (statusEl) {
         statusEl.innerHTML = '<span style="color: var(--text-muted);">Not configured</span>';
       }
       if (enableBtn) enableBtn.textContent = 'Select Folder';
       if (syncBtn) syncBtn.style.display = 'none';
+      if (hintEl) hintEl.style.display = 'block';
     }
   }
   
