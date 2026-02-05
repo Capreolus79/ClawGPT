@@ -2990,12 +2990,108 @@ window.CLAWGPT_CONFIG = {
       };
     }
     
-    // Switch to this chat - sendMessage will add the user message
+    // Switch to this chat
     this.currentChatId = chatId;
     
-    // Send to gateway (this adds the user message to chat)
-    // Don't broadcast user message back to phone - phone already has it
-    this.sendMessage(content);
+    // Use robust sending with retry logic
+    this.sendPhoneMessageWithRetry(content, chatId);
+  }
+
+  async sendPhoneMessageWithRetry(content, chatId, retryCount = 0) {
+    const maxRetries = 2; // Conservative: only 2 retries to avoid long waits
+    const retryDelay = 1500; // 1.5 seconds between retries
+    
+    try {
+      // If already streaming, queue this message (existing logic, just moved here)
+      if (this.streaming) {
+        console.log('Already streaming, queuing phone message');
+        if (!this.phoneMessageQueue) this.phoneMessageQueue = [];
+        this.phoneMessageQueue.push({ content, chatId, timestamp: Date.now() });
+        
+        // Notify phone that message is queued
+        if (this.relayEncrypted) {
+          this.sendRelayMessage({
+            type: 'message-status',
+            chatId: chatId,
+            status: 'queued',
+            message: 'Waiting for current response to finish...'
+          });
+        }
+        return;
+      }
+      
+      // Check gateway connection
+      if (!this.connected) {
+        console.log(`Gateway not connected, attempting reconnect (attempt ${retryCount + 1})...`);
+        
+        // Notify phone we're reconnecting
+        if (this.relayEncrypted) {
+          this.sendRelayMessage({
+            type: 'message-status',
+            chatId: chatId,
+            status: 'reconnecting',
+            message: retryCount === 0 ? 'Reconnecting to gateway...' : `Retrying connection (${retryCount + 1}/${maxRetries + 1})...`
+          });
+        }
+        
+        await this.connect();
+        
+        // If still not connected after attempt
+        if (!this.connected) {
+          if (retryCount < maxRetries) {
+            console.log(`Reconnect failed, retrying in ${retryDelay}ms...`);
+            
+            // Wait and retry
+            setTimeout(() => {
+              this.sendPhoneMessageWithRetry(content, chatId, retryCount + 1);
+            }, retryDelay);
+            return;
+          } else {
+            // All retries failed - notify phone
+            console.error('Failed to reconnect to gateway after all retries');
+            
+            if (this.relayEncrypted) {
+              this.sendRelayMessage({
+                type: 'message-status',
+                chatId: chatId,
+                status: 'failed',
+                message: 'Connection failed. Please try again or check gateway status.'
+              });
+            }
+            return;
+          }
+        }
+      }
+      
+      // Gateway is connected - send normally
+      console.log('Sending phone message to gateway');
+      
+      // Clear any status and send
+      if (this.relayEncrypted && retryCount > 0) {
+        this.sendRelayMessage({
+          type: 'message-status',
+          chatId: chatId,
+          status: 'connected',
+          message: 'Connected! Sending message...'
+        });
+      }
+      
+      // Call original sendMessage (this adds user message and starts streaming)
+      this.sendMessage(content);
+      
+    } catch (error) {
+      console.error('Phone message send failed:', error);
+      
+      // Notify phone of error
+      if (this.relayEncrypted) {
+        this.sendRelayMessage({
+          type: 'message-status',
+          chatId: chatId,
+          status: 'error',
+          message: `Error: ${error.message}`
+        });
+      }
+    }
   }
   
   // Forward gateway response to phone via relay
@@ -4409,6 +4505,26 @@ Example: [0, 2, 5]`;
         this.loadHistory();
         this.updateSettingsButtons();
         this.fetchModels();
+        
+        // Clear any stale streaming state when gateway reconnects
+        if (this.streaming) {
+          console.log('Clearing stale streaming state after reconnect');
+          this.streaming = false;
+          this.streamBuffer = '';
+          this.updateStreamingUI();
+        }
+        
+        // Clean up old queued messages (older than 5 minutes)
+        if (this.phoneMessageQueue) {
+          const fiveMinutesAgo = Date.now() - (5 * 60 * 1000);
+          const originalLength = this.phoneMessageQueue.length;
+          this.phoneMessageQueue = this.phoneMessageQueue.filter(msg => 
+            msg.timestamp > fiveMinutesAgo
+          );
+          if (this.phoneMessageQueue.length < originalLength) {
+            console.log(`Cleaned up ${originalLength - this.phoneMessageQueue.length} old queued messages`);
+          }
+        }
       }
       return;
     }
@@ -6540,6 +6656,17 @@ Example: [0, 2, 5]`;
         console.log('Processing queued message');
         // Small delay to let UI update before sending next
         setTimeout(() => this.sendMessage(pending.text), 100);
+      }
+      
+      // Process queued phone messages if any
+      if (this.phoneMessageQueue && this.phoneMessageQueue.length > 0) {
+        const nextMessage = this.phoneMessageQueue.shift();
+        console.log('Processing queued phone message');
+        
+        // Small delay to let UI update, then process next phone message
+        setTimeout(() => {
+          this.sendPhoneMessageWithRetry(nextMessage.content, nextMessage.chatId);
+        }, 200); // Slightly longer delay to avoid conflicts with regular queue
       }
     }
   }
