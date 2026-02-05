@@ -500,6 +500,91 @@ class FileMemoryStorage {
     return count;
   }
 
+  // Load chats from memory folder - reconstructs chat objects from JSONL files
+  async loadFromMemory() {
+    if (!this.enabled || !this.dirHandle) return {};
+
+    const chats = {};
+    
+    try {
+      // List all .jsonl files in the directory
+      for await (const entry of this.dirHandle.values()) {
+        if (entry.kind === 'file' && entry.name.endsWith('.jsonl')) {
+          try {
+            const file = await entry.getFile();
+            const content = await file.text();
+            
+            // Parse each line
+            for (const line of content.split('\n')) {
+              if (!line.trim()) continue;
+              
+              try {
+                const msg = JSON.parse(line);
+                if (!msg.chatId) continue;
+                
+                // Create or update chat
+                if (!chats[msg.chatId]) {
+                  chats[msg.chatId] = {
+                    id: msg.chatId,
+                    title: msg.chatTitle || 'Untitled',
+                    messages: [],
+                    createdAt: msg.timestamp,
+                    updatedAt: msg.timestamp
+                  };
+                }
+                
+                const chat = chats[msg.chatId];
+                
+                // Update timestamps
+                if (msg.timestamp < chat.createdAt) chat.createdAt = msg.timestamp;
+                if (msg.timestamp > chat.updatedAt) chat.updatedAt = msg.timestamp;
+                
+                // Add message (will sort and dedupe later)
+                chat.messages.push({
+                  role: msg.role,
+                  content: msg.content,
+                  timestamp: msg.timestamp,
+                  _order: msg.order // Keep original order for sorting
+                });
+              } catch (parseErr) {
+                // Skip invalid lines
+              }
+            }
+          } catch (fileErr) {
+            console.warn(`FileMemoryStorage: Error reading ${entry.name}:`, fileErr);
+          }
+        }
+      }
+      
+      // Sort messages in each chat and remove duplicates
+      for (const chat of Object.values(chats)) {
+        // Sort by order if available, otherwise by timestamp
+        chat.messages.sort((a, b) => {
+          if (a._order !== undefined && b._order !== undefined) {
+            return a._order - b._order;
+          }
+          return (a.timestamp || 0) - (b.timestamp || 0);
+        });
+        
+        // Remove _order helper and dedupe by content+role+timestamp
+        const seen = new Set();
+        chat.messages = chat.messages.filter(m => {
+          delete m._order;
+          const key = `${m.role}:${m.timestamp}:${m.content?.substring(0, 100)}`;
+          if (seen.has(key)) return false;
+          seen.add(key);
+          return true;
+        });
+      }
+      
+      console.log(`FileMemoryStorage: Loaded ${Object.keys(chats).length} chats from memory folder`);
+      return chats;
+    } catch (e) {
+      console.error('FileMemoryStorage: Error loading from memory:', e);
+      return {};
+    }
+  }
+
   isEnabled() {
     return this.enabled;
   }
@@ -1714,7 +1799,33 @@ window.CLAWGPT_CONFIG = {
 
   // Chat storage (IndexedDB with localStorage fallback)
   async loadChats() {
+    // Load from localStorage first
     this.chats = await this.storage.loadAll();
+    
+    // Also load from file memory folder and merge
+    if (this.fileMemoryStorage.isEnabled()) {
+      try {
+        const memoryChats = await this.fileMemoryStorage.loadFromMemory();
+        
+        // Merge: memory folder chats are added if not already in localStorage
+        // localStorage takes priority for existing chats (more recent)
+        let merged = 0;
+        for (const [chatId, chat] of Object.entries(memoryChats)) {
+          if (!this.chats[chatId]) {
+            this.chats[chatId] = chat;
+            merged++;
+          }
+        }
+        
+        if (merged > 0) {
+          console.log(`Merged ${merged} chats from memory folder`);
+          // Save merged chats to localStorage for faster loading next time
+          this.storage.saveAll(this.chats);
+        }
+      } catch (e) {
+        console.warn('Failed to load from memory folder:', e);
+      }
+    }
   }
 
   saveChats(broadcastChatId = null) {
