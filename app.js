@@ -6602,12 +6602,6 @@ Example: [0, 2, 5]`;
       // Check if we're switching to a different chat
       const switchingChats = this.lastGatewayChat && this.lastGatewayChat !== this.currentChatId;
       
-      // If switching chats, clear gateway and include context from this chat
-      if (switchingChats) {
-        console.log('Switching chats, clearing gateway and including context');
-        await this.sendForgetCommand();
-      }
-      
       // Build the message with context if needed
       let finalMessage = messageContent;
       
@@ -6621,6 +6615,13 @@ Example: [0, 2, 5]`;
         // Get messages BEFORE the one we just added
         const historyMessages = chat.messages.slice(0, -1);
         if (historyMessages.length > 0) {
+          // Only send /forget if we have context to inject
+          // (avoids "Session cleared" response for new empty chats)
+          if (switchingChats) {
+            console.log('Switching chats with history, clearing gateway');
+            await this.sendForgetCommand();
+          }
+          
           const context = this.buildChatContext({ messages: historyMessages });
           if (context) {
             // Prepend conversation context
