@@ -2219,6 +2219,27 @@ window.CLAWGPT_CONFIG = {
         this.relayWs = null;
         this.relayEncrypted = false;
         // Don't destroy relayCrypto - may be reused for reconnection
+        
+        // Auto-reconnect as host with exponential backoff
+        const saved = this.getSavedRelayConnection();
+        if (saved && this.relayRole === 'host') {
+          const delay = Math.min(3000 * Math.pow(2, (this._relayReconnectAttempts || 0)), 60000);
+          this._relayReconnectAttempts = (this._relayReconnectAttempts || 0) + 1;
+          console.log(`Relay auto-reconnect in ${delay/1000}s (attempt ${this._relayReconnectAttempts})`);
+          this.setStatus('Reconnecting...');
+          this._relayReconnectTimer = setTimeout(async () => {
+            try {
+              this.relayCrypto = new RelayCrypto();
+              this.relayCrypto.generateKeyPair();
+              await this.connectToRelayRoom(saved.server, saved.roomId);
+              console.log('Relay auto-reconnected successfully');
+              this._relayReconnectAttempts = 0;
+              this.setStatus('Waiting for phone...');
+            } catch (e) {
+              console.error('Relay auto-reconnect failed:', e);
+            }
+          }, delay);
+        }
       };
       
       // Timeout
@@ -5455,6 +5476,9 @@ Example: [0, 2, 5]`;
 
     // Italic
     html = html.replace(/\*([^*]+)\*/g, '<em>$1</em>');
+
+    // Linkify URLs (after escaping, so no HTML injection risk)
+    html = html.replace(/(https?:\/\/[^\s<>"'`)\]]+)/g, '<a href="$1" target="_blank" rel="noopener">$1</a>');
 
     // Line breaks
     html = html.replace(/\n/g, '<br>');
