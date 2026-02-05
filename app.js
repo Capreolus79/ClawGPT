@@ -5487,21 +5487,8 @@ Example: [0, 2, 5]`;
         console.log('Current model:', this.currentModelId, 'Family:', this.currentModelFamily);
       }
       
-      // Set default conversational model if user hasn't explicitly chosen one
-      // claude-sonnet-4 is fast for conversation; user can switch via model selector
-      const preferredModel = 'anthropic/claude-sonnet-4-20250514';
-      if (!this._userSelectedModel && this.currentModelId !== 'claude-sonnet-4-20250514') {
-        console.log('Setting default conversation model:', preferredModel);
-        await this.request('chat.send', {
-          sessionKey: this.sessionKey,
-          message: `/model ${preferredModel}`,
-          deliver: false,
-          idempotencyKey: 'model-default-' + Date.now()
-        });
-        this.currentModelId = 'claude-sonnet-4-20250514';
-        this.currentModelFamily = 'claude';
-        console.log('Conversation model set to claude-sonnet-4');
-      }
+      // Don't auto-switch models - use whatever the gateway/session has configured
+      // User can switch via model selector if needed
     } catch (error) {
       console.error('Failed to fetch models:', error);
       this.allModels = [];
