@@ -355,14 +355,11 @@ class FileMemoryStorage {
 
   async selectDirectory(isAutoSetup = false) {
     try {
-      // For auto-setup, try to guide user to create/select clawgpt-memory folder
-      const options = {
-        id: 'clawgpt-memory',
-        mode: 'readwrite'
-      };
-      
       // Start in Documents folder where clawgpt-memory should be located
-      options.startIn = 'documents';
+      const options = {
+        mode: 'readwrite',
+        startIn: 'documents'
+      };
       
       this.dirHandle = await window.showDirectoryPicker(options);
 
