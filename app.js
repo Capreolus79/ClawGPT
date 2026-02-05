@@ -6639,6 +6639,7 @@ Example: [0, 2, 5]`;
 
       // Use final content if available (more complete), fall back to buffer
       const finalContent = content || this.streamBuffer;
+      console.log('Final content length:', finalContent?.length, 'content:', content?.substring(0, 100), 'buffer:', this.streamBuffer?.substring(0, 100));
 
       if (state === 'error') {
         this.addAssistantMessage('Error: ' + (payload.errorMessage || 'Unknown error'));
