@@ -361,12 +361,8 @@ class FileMemoryStorage {
         mode: 'readwrite'
       };
       
-      // Start in the directory where ClawGPT is running if possible
-      // This helps users find/create the clawgpt-memory folder in the right place
-      if (isAutoSetup) {
-        // Try to start in downloads or documents as fallback
-        options.startIn = 'downloads';
-      }
+      // Start in Documents folder where clawgpt-memory should be located
+      options.startIn = 'documents';
       
       this.dirHandle = await window.showDirectoryPicker(options);
 
