@@ -355,10 +355,8 @@ class FileMemoryStorage {
 
   async selectDirectory(isAutoSetup = false) {
     try {
-      // Start in Desktop folder (Documents doesn't work reliably on Linux)
       const options = {
-        mode: 'readwrite',
-        startIn: 'desktop'
+        mode: 'readwrite'
       };
       
       this.dirHandle = await window.showDirectoryPicker(options);
