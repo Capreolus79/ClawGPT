@@ -2944,6 +2944,15 @@ window.CLAWGPT_CONFIG = {
       this.handlePhoneMessage(msg);
       return;
     }
+
+    // Phone requests to stop current generation
+    if (msg.type === 'stop-generation') {
+      console.log('[Relay] Phone requested stop generation');
+      this.stopGeneration();
+      // Send confirmation back to phone
+      this.sendRelayMessage({ type: 'generation-stopped' });
+      return;
+    }
     
     // Legacy sync messages - respond with full state instead
     if (msg.type === 'sync-meta' || msg.type === 'sync-request') {
