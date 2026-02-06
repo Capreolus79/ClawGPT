@@ -252,13 +252,13 @@
           <span class="setting-hint">Export saves all chats to a JSON file. Import merges chats from a file.</span>
         </div>
         <div class="settings-divider"></div>
-        <div class="settings-section-title">Cross-Device Memory</div>
+        <div class="settings-section-title">Persistent Backup</div>
         <div class="form-group">
           <div class="file-memory-status">
             <span id="fileMemoryStatus"><span style="color: var(--text-muted);">Not configured</span></span>
           </div>
           <p id="fileMemoryHint" style="font-size: 12px; color: var(--text-muted); margin: 4px 0 8px 0;">
-            Navigate to Documents → select <code style="background: var(--bg-secondary); padding: 2px 4px; border-radius: 3px;">clawgpt-memory</code>
+            <strong>Chrome/Edge only:</strong> Navigate to Documents → select <code style="background: var(--bg-secondary); padding: 2px 4px; border-radius: 3px;">clawgpt-memory</code>
           </p>
           <div class="button-group">
             <button class="data-btn" id="enableFileMemoryBtn">
@@ -276,7 +276,7 @@
               Sync Now
             </button>
           </div>
-          <span class="setting-hint">Save messages to a folder for cross-device access. Messages sync via relay and persist to disk.</span>
+          <span class="setting-hint">Survives browser resets. Firefox/Brave/Safari: use Export/Import above instead.</span>
         </div>
         <div class="settings-divider"></div>
         <div class="settings-section-title">Mobile Access</div>
