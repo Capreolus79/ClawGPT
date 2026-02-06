@@ -355,8 +355,10 @@ class FileMemoryStorage {
 
   async selectDirectory(isAutoSetup = false) {
     try {
+      // startIn: 'documents' works on Windows/Mac, broken on Linux Chrome
       const options = {
-        mode: 'readwrite'
+        mode: 'readwrite',
+        startIn: 'documents'
       };
       
       this.dirHandle = await window.showDirectoryPicker(options);
