@@ -1,6 +1,6 @@
 # ClawGPT
 
-> **A free, self-hosted ChatGPT alternative** — Clean web interface for [OpenClaw](https://github.com/openclaw/openclaw)
+> **A free, self-hosted ChatGPT alternative** — Clean web interface for [OpenClaw](https://github.com/openclaw/openclaw) with **Claude Opus 4.6 support**
 
 ![ClawGPT Screenshot](screenshot.png)
 
@@ -10,18 +10,22 @@
 
 | Feature | ChatGPT | Claude.ai | OpenClaw | ClawGPT |
 |---------|:-------:|:---------:|:--------:|:-------:|
+| **Claude Opus 4.6** | ❌ | ✅ | ❌ | ✅ |
 | Edit any message | ✅ | ❌ | ❌ | ✅ |
 | Conversation branching | ✅ | ❌ | ❌ | ✅ |
 | Regenerate responses | ✅ | ✅ | ❌ | ✅ |
 | Choose model per-message | ❌ | ❌ | ✅ | ✅ |
+| Voice input & read aloud | ✅ | ❌ | ❌ | ✅ |
+| File & image attachments | ✅ | ✅ | ❌ | ✅ |
 | Search all chats | ✅ | ❌ | ❌ | ✅ |
 | AI-powered semantic search | ❌ | ❌ | ❌ | ✅ |
 | Export all chats (JSON) | ❌ | ❌ | ❌ | ✅ |
 | Import/restore chats | ❌ | ❌ | ❌ | ✅ |
+| Cross-device sync | ❌ | ❌ | ❌ | ✅ |
 | Unlimited local history | ❌ | ❌ | ✅ | ✅ |
-| Works offline | ❌ | ❌ | ❌ | ✅ |
 | Data stays on your machine | ❌ | ❌ | ✅ | ✅ |
 | Pin favorite chats | ❌ | ❌ | ❌ | ✅ |
+| Code syntax highlighting | ✅ | ✅ | ❌ | ✅ |
 | Open source | ❌ | ❌ | ✅ | ✅ |
 
 **Use your existing Claude.ai subscription** — no extra API costs, no new accounts, just a better interface.
@@ -34,12 +38,13 @@
 - [x] **Streaming responses** — See answers as they're generated in real-time
 - [x] **Stop generation** — Red stop button to halt mid-response
 - [x] **Dark/Light mode** — Easy on the eyes, system preference supported
-- [x] **Mobile friendly** — Fully responsive design
-- [x] **Zero dependencies** — No npm, no build tools, just HTML/CSS/JS
+- [x] **Mobile friendly** — Fully responsive design with native Android app
+- [x] **No build tools** — Pure HTML/CSS/JS, just open and go
 
 ### Organization
 - [x] **Pin favorite chats** — Drag-and-drop reordering, pinned chats stay at top
 - [x] **Rename chats** — Custom titles instead of auto-generated ones
+- [x] **Collapsible sidebar** — More screen space when you need it
 - [x] **Search chat history** — Find any conversation instantly with smart search
 - [x] **Semantic search** — Optional AI-powered search for better results
 
@@ -53,6 +58,19 @@
 - [x] **Regenerate responses** — Get a new answer with one click
 - [x] **Model selection** — Choose different AI models per regeneration
 - [x] **Per-chat model display** — See which model is being used
+- [x] **Token counter** — Track estimated token usage per conversation
+
+### Voice
+- [x] **Voice input** — Speech-to-text via browser or native (Android) speech recognition
+- [x] **Read aloud** — Text-to-speech on any AI response
+- [x] **Push-to-talk** — Hold the mic button to record (mobile)
+- [x] **Conversation mode** — Double-tap mic for hands-free back-and-forth (mobile)
+
+### Files & Media
+- [x] **Image attachments** — Attach and preview images inline
+- [x] **File attachments** — Send text files, code, PDFs, spreadsheets
+- [x] **Code highlighting** — Syntax highlighting for 100+ languages via Prism.js
+- [x] **Code copy buttons** — One-click copy for any code block
 
 ### Data & Storage
 - [x] **IndexedDB storage** — Virtually unlimited local storage (no 5MB limit)
@@ -82,10 +100,11 @@ Need to use ClawGPT from your phone when you're away from home? Enable Relay Mod
 | **Perfect Forward Secrecy** | New encryption keys generated for each session |
 | **Visual Verification** | Matching words on both devices confirms no man-in-the-middle |
 | **No Token Exposure** | Your auth token is never sent through the relay |
+| **Chat History Sync** | Your chats sync automatically between desktop and phone |
 
 **Crypto details:** X25519 key exchange, XSalsa20-Poly1305 authenticated encryption, powered by [TweetNaCl.js](https://tweetnacl.js.org/).
 
-> 💡 Don't trust our relay? [Self-host your own](https://github.com/craihub/clawgpt-relay) — it's just a simple Node.js server.
+> Don't trust our relay? [Self-host your own](https://github.com/craihub/clawgpt-relay) — it's just a simple Node.js server.
 
 ## 🚀 Quick Start
 
@@ -106,7 +125,7 @@ Need to use ClawGPT from your phone when you're away from home? Enable Relay Mod
    openclaw gateway
    ```
 
-You're now talking to Claude through OpenClaw. 
+You're now talking to Claude through OpenClaw.
 
 ---
 
@@ -125,7 +144,7 @@ That's it. OpenClaw will handle the rest.
 <details>
 <summary>Click to expand manual instructions</summary>
 
-1. [⬇️ Download ClawGPT ZIP](https://github.com/craihub/clawgpt/archive/refs/heads/main.zip)
+1. [Download ClawGPT ZIP](https://github.com/craihub/clawgpt/archive/refs/heads/main.zip)
 
 2. Extract to your **home folder** as `clawgpt`:
    - **Mac/Linux:** `~/clawgpt/`
@@ -141,7 +160,7 @@ That's it. OpenClaw will handle the rest.
 5. The setup wizard will ask for your token. Ask OpenClaw:
    > *"What's my gateway token?"*
 
-> 💡 **Can't find your home folder?** Ask OpenClaw: *"open my clawgpt folder"*
+> **Can't find your home folder?** Ask OpenClaw: *"open my clawgpt folder"*
 
 </details>
 
@@ -166,6 +185,8 @@ Click the **Settings** button (gear icon) to configure:
 | Session Key | OpenClaw session to use | `main` |
 | Dark Mode | Toggle dark/light theme | On |
 | Smart Search | AI-generated summaries for search | On |
+| Semantic Search | Find related chats by meaning | Off |
+| Show Tokens | Display estimated token count | Off |
 | Export/Import | Backup and restore all chats | — |
 
 ### Auto-Connect (Optional)
@@ -187,7 +208,18 @@ window.CLAWGPT_CONFIG = {
 
 Any browser opening ClawGPT will auto-connect using this config. The file is gitignored so your token won't be committed.
 
-> ⚠️ **Security**: Only use config.js on localhost. If exposed to a network, anyone can view your token in the source.
+> **Security**: Only use config.js on localhost. If exposed to a network, anyone can view your token in the source.
+
+## 🔄 Cross-Device Sync
+
+When you connect your phone via the relay QR code, your chat history syncs automatically:
+
+- **Initial sync**: Phone receives all chats from desktop on connect
+- **Real-time sync**: New messages appear on both devices instantly
+- **Conflict resolution**: Newer changes win (by timestamp)
+- **Offline support**: Each device keeps its own local copy
+
+No cloud storage, no accounts — sync happens directly through the encrypted relay connection while both devices are connected.
 
 ## 🧠 Cross-Device Memory
 
@@ -218,12 +250,12 @@ ClawGPT's killer feature: **clawgpt-memory** — a file-based conversation store
 
 ### Setup
 
-On first run, ClawGPT will ask you to select a folder for `clawgpt-memory`. 
+On first run, ClawGPT will ask you to select a folder for `clawgpt-memory`.
 
 **Recommended:** Create a folder called `clawgpt-memory` in your ClawGPT directory:
 ```
 clawgpt/
-├── clawgpt-memory/    ← Your synced conversations
+├── clawgpt-memory/    <- Your synced conversations
 │   ├── 2026-02-04.jsonl
 │   └── 2026-02-05.jsonl
 ├── index.html
@@ -231,7 +263,7 @@ clawgpt/
 └── ...
 ```
 
-You can also set this up later in **Settings → Cross-Device Memory**.
+You can also set this up later in **Settings**.
 
 ### File Format
 
@@ -276,10 +308,20 @@ ClawGPT connects directly to OpenClaw's Gateway WebSocket API:
 
 ```
 clawgpt/
-├── index.html      # Main HTML structure
-├── style.css       # ChatGPT-like styling
-├── app.js          # WebSocket + UI logic + IndexedDB storage
-├── screenshot.png  # UI screenshot
+├── index.html            # Main HTML structure
+├── style.css             # ChatGPT-like styling (dark/light themes)
+├── app.js                # WebSocket + UI logic + chat management
+├── chat-storage.js       # IndexedDB storage with localStorage fallback
+├── memory-storage.js     # Per-message indexing for search
+├── file-memory-storage.js # File System Access API for cross-device sync
+├── error-handler.js      # Error capture and debug logging
+├── config.example.js     # Example config (copy to config.js)
+├── lib/
+│   ├── relay-crypto.js   # E2E encryption for relay mode
+│   ├── nacl.min.js       # TweetNaCl.js crypto library
+│   ├── nacl-util.min.js  # TweetNaCl utilities
+│   └── purify.min.js     # DOMPurify for HTML sanitization
+├── screenshot.png
 └── README.md
 ```
 
@@ -289,16 +331,17 @@ clawgpt/
 |---|---------|---------|
 | **Cost** | $20/month | Free (use your Claude.ai sub via OAuth) |
 | **Privacy** | Data sent to OpenAI | Stays on your machine |
-| **Internet** | Required | Works offline |
-| **Model choice** | GPT-4 only | Any model via OpenClaw |
+| **Model choice** | GPT-4 only | Any model via OpenClaw (including Opus 4.6) |
 | **Edit messages** | ✅ | ✅ |
 | **Branching** | ✅ | ✅ |
 | **Regenerate** | ✅ | ✅ + model selection |
+| **Voice input** | ✅ | ✅ + push-to-talk |
 | **Search history** | ✅ | ✅ + semantic search |
 | **Export/Import** | Limited | Full JSON backup |
+| **Cross-device** | Cloud only | E2E encrypted sync |
 | **Storage limit** | Cloud-based | Unlimited (IndexedDB) |
 | **Data ownership** | OpenAI owns it | You own it |
-| **Customization** | Limited | Full control |
+| **Customization** | Limited | Full control (open source) |
 
 ## 🛠️ Troubleshooting
 
@@ -325,17 +368,17 @@ clawgpt/
 2. In new browser: Settings → Import Chats
 
 **Mobile not connecting?**
-- Use **Chrome** on mobile — works best with local network connections
-- Brave/Firefox may block local WebSocket connections for security reasons
+- Install the [ClawGPT Android app](https://github.com/craihub/clawgpt-app) for the best experience
+- Alternatively, use **Chrome** on mobile — Brave/Firefox may block local WebSocket connections
 - Make sure your phone is on the same WiFi network as your computer
 
 ## 🤝 Contributing
 
 PRs welcome! Ideas for contribution:
-- Keyboard shortcuts help panel
 - Chat folders/tags
-- Code syntax highlighting
 - PWA/offline support
+- More voice languages
+- Custom themes
 
 ## 📱 Mobile Apps
 
@@ -346,7 +389,9 @@ Native Android wrapper available: [ClawGPT for Android](https://github.com/craih
 - Install the APK directly (no Play Store needed)
 - Scan QR code from desktop to connect
 - End-to-end encrypted relay connection
+- Push-to-talk and conversation mode voice input
 - Chat history syncs automatically between devices
+- Swipe gestures for sidebar navigation
 
 ### iOS
 
@@ -360,4 +405,4 @@ MIT — do whatever you want with it.
 
 ## 🔑 Keywords
 
-ChatGPT alternative, self-hosted AI chat, local LLM interface, OpenClaw UI, free ChatGPT, private AI assistant, open source ChatGPT clone, web UI for local AI, ChatGPT clone with branching, edit AI messages, regenerate AI responses, chat history search, self-hosted Claude interface, local GPT-4 UI, offline AI chat, conversation branching, edit and retry AI chat, free GPT interface, localhost AI chat, browser-based AI chat, no-signup AI chat, export chat history, import chat backup, IndexedDB chat storage, unlimited chat history, local AI web interface
+ChatGPT alternative, self-hosted AI chat, Claude Opus 4.6, OpenClaw UI, free ChatGPT, private AI assistant, open source ChatGPT clone, Claude.ai alternative UI, edit AI messages, regenerate AI responses, chat history search, self-hosted Claude interface, conversation branching, voice input AI chat, speech to text AI, cross-device chat sync, E2E encrypted AI chat, export chat history, import chat backup, IndexedDB chat storage, unlimited chat history, semantic search AI chat, code syntax highlighting, file attachments AI chat
