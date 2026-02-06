@@ -498,47 +498,64 @@ class FileMemoryStorage {
     const chats = {};
     
     try {
-      // List all .jsonl files in the directory
+      // List all .jsonl and .json files in the directory
       for await (const entry of this.dirHandle.values()) {
-        if (entry.kind === 'file' && entry.name.endsWith('.jsonl')) {
+        if (entry.kind === 'file') {
           try {
             const file = await entry.getFile();
             const content = await file.text();
             
-            // Parse each line
-            for (const line of content.split('\n')) {
-              if (!line.trim()) continue;
-              
-              try {
-                const msg = JSON.parse(line);
-                if (!msg.chatId) continue;
+            if (entry.name.endsWith('.jsonl')) {
+              // JSONL format: one message per line
+              for (const line of content.split('\n')) {
+                if (!line.trim()) continue;
                 
-                // Create or update chat
-                if (!chats[msg.chatId]) {
-                  chats[msg.chatId] = {
-                    id: msg.chatId,
-                    title: msg.chatTitle || 'Untitled',
-                    messages: [],
-                    createdAt: msg.timestamp,
-                    updatedAt: msg.timestamp
-                  };
+                try {
+                  const msg = JSON.parse(line);
+                  if (!msg.chatId) continue;
+                  
+                  // Create or update chat
+                  if (!chats[msg.chatId]) {
+                    chats[msg.chatId] = {
+                      id: msg.chatId,
+                      title: msg.chatTitle || 'Untitled',
+                      messages: [],
+                      createdAt: msg.timestamp,
+                      updatedAt: msg.timestamp
+                    };
+                  }
+                  
+                  const chat = chats[msg.chatId];
+                  
+                  // Update timestamps
+                  if (msg.timestamp < chat.createdAt) chat.createdAt = msg.timestamp;
+                  if (msg.timestamp > chat.updatedAt) chat.updatedAt = msg.timestamp;
+                  
+                  // Add message (will sort and dedupe later)
+                  chat.messages.push({
+                    role: msg.role,
+                    content: msg.content,
+                    timestamp: msg.timestamp,
+                    _order: msg.order // Keep original order for sorting
+                  });
+                } catch (parseErr) {
+                  // Skip invalid lines
                 }
-                
-                const chat = chats[msg.chatId];
-                
-                // Update timestamps
-                if (msg.timestamp < chat.createdAt) chat.createdAt = msg.timestamp;
-                if (msg.timestamp > chat.updatedAt) chat.updatedAt = msg.timestamp;
-                
-                // Add message (will sort and dedupe later)
-                chat.messages.push({
-                  role: msg.role,
-                  content: msg.content,
-                  timestamp: msg.timestamp,
-                  _order: msg.order // Keep original order for sorting
-                });
+              }
+            } else if (entry.name.endsWith('.json')) {
+              // JSON format: export file with {chats: {...}}
+              try {
+                const data = JSON.parse(content);
+                if (data.chats) {
+                  console.log(`FileMemoryStorage: Found export file ${entry.name} with ${Object.keys(data.chats).length} chats`);
+                  for (const [chatId, chat] of Object.entries(data.chats)) {
+                    if (!chats[chatId]) {
+                      chats[chatId] = chat;
+                    }
+                  }
+                }
               } catch (parseErr) {
-                // Skip invalid lines
+                console.warn(`FileMemoryStorage: Error parsing ${entry.name}:`, parseErr);
               }
             }
           } catch (fileErr) {
