@@ -1223,6 +1223,9 @@ body {
   border-radius: 16px;
   width: 90%;
   max-width: 480px;
+  max-height: 90vh;
+  display: flex;
+  flex-direction: column;
   border: 1px solid var(--border-color);
 }
 
@@ -1254,6 +1257,9 @@ body {
 
 .modal-body {
   padding: 24px;
+  overflow-y: auto;
+  flex: 1;
+  min-height: 0;
 }
 
 .form-group {
