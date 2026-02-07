@@ -2529,12 +2529,27 @@ window.CLAWGPT_CONFIG = {
       sessionsBtn: document.getElementById('sessionsBtn'),
       sessionDashboard: document.getElementById('sessionDashboard'),
       sessionDashboardClose: document.getElementById('sessionDashboardClose'),
-      sessionDashboardBody: document.getElementById('sessionDashboardBody')
+      sessionDashboardBody: document.getElementById('sessionDashboardBody'),
+      cronBtn: document.getElementById('cronBtn'),
+      cronDashboard: document.getElementById('cronDashboard'),
+      cronDashboardClose: document.getElementById('cronDashboardClose'),
+      cronDashboardBody: document.getElementById('cronDashboardBody'),
+      cronCreateBtn: document.getElementById('cronCreateBtn'),
+      cronModal: document.getElementById('cronModal'),
+      cronModalClose: document.getElementById('cronModalClose'),
+      cronModalTitle: document.getElementById('cronModalTitle'),
+      cronForm: document.getElementById('cronForm'),
+      cronFormCancel: document.getElementById('cronFormCancel')
     };
 
     // Session dashboard state
     this.sessionDashboardOpen = false;
     this.sessionRefreshInterval = null;
+
+    // Cron dashboard state
+    this.cronDashboardOpen = false;
+    this.cronRefreshInterval = null;
+    this.currentEditJobId = null;
 
     // Models list (fetched on connect)
     this.availableModels = [];
@@ -2662,6 +2677,41 @@ window.CLAWGPT_CONFIG = {
     }
     if (this.elements.sessionDashboardClose) {
       this.elements.sessionDashboardClose.addEventListener('click', () => this.closeSessionDashboard());
+    }
+
+    // Cron dashboard
+    if (this.elements.cronBtn) {
+      this.elements.cronBtn.addEventListener('click', () => this.toggleCronDashboard());
+    }
+    if (this.elements.cronDashboardClose) {
+      this.elements.cronDashboardClose.addEventListener('click', () => this.closeCronDashboard());
+    }
+    if (this.elements.cronCreateBtn) {
+      this.elements.cronCreateBtn.addEventListener('click', () => this.openCronModal());
+    }
+    if (this.elements.cronModalClose) {
+      this.elements.cronModalClose.addEventListener('click', () => this.closeCronModal());
+    }
+    if (this.elements.cronFormCancel) {
+      this.elements.cronFormCancel.addEventListener('click', () => this.closeCronModal());
+    }
+    if (this.elements.cronForm) {
+      this.elements.cronForm.addEventListener('submit', (e) => {
+        e.preventDefault();
+        this.saveCronJob();
+      });
+    }
+
+    // Cron form schedule type selector
+    const cronScheduleType = document.getElementById('cronScheduleType');
+    if (cronScheduleType) {
+      cronScheduleType.addEventListener('change', () => this.updateCronScheduleFields());
+    }
+
+    // Cron form payload type selector
+    const cronPayloadType = document.getElementById('cronPayloadType');
+    if (cronPayloadType) {
+      cronPayloadType.addEventListener('change', () => this.updateCronPayloadFields());
     }
 
     // Help/shortcuts modal
@@ -3418,6 +3468,438 @@ window.CLAWGPT_CONFIG = {
     const div = document.createElement('div');
     div.textContent = text;
     return div.innerHTML;
+  }
+
+  // Cron Dashboard methods
+  async toggleCronDashboard() {
+    if (this.cronDashboardOpen) {
+      this.closeCronDashboard();
+    } else {
+      this.openCronDashboard();
+    }
+  }
+
+  async openCronDashboard() {
+    this.cronDashboardOpen = true;
+    if (this.elements.cronDashboard) {
+      this.elements.cronDashboard.style.display = 'flex';
+    }
+    await this.loadCronJobs();
+
+    // Start auto-refresh every 30 seconds
+    if (this.cronRefreshInterval) {
+      clearInterval(this.cronRefreshInterval);
+    }
+    this.cronRefreshInterval = setInterval(() => {
+      if (this.cronDashboardOpen) {
+        this.loadCronJobs();
+      }
+    }, 30000);
+  }
+
+  closeCronDashboard() {
+    this.cronDashboardOpen = false;
+    if (this.elements.cronDashboard) {
+      this.elements.cronDashboard.style.display = 'none';
+    }
+
+    // Stop auto-refresh
+    if (this.cronRefreshInterval) {
+      clearInterval(this.cronRefreshInterval);
+      this.cronRefreshInterval = null;
+    }
+  }
+
+  async loadCronJobs() {
+    if (!this.elements.cronDashboardBody) return;
+
+    try {
+      // Show loading state
+      this.elements.cronDashboardBody.innerHTML = '<div class="cron-loading">Loading cron jobs...</div>';
+
+      // Request cron jobs from gateway
+      const result = await this.request('cron.list', {});
+
+      if (!result.jobs || result.jobs.length === 0) {
+        this.elements.cronDashboardBody.innerHTML = '<div class="cron-empty">No cron jobs configured</div>';
+        return;
+      }
+
+      // Render cron job cards
+      this.renderCronCards(result.jobs);
+    } catch (error) {
+      console.error('Failed to load cron jobs:', error);
+      this.elements.cronDashboardBody.innerHTML = '<div class="cron-error">Failed to load cron jobs</div>';
+    }
+  }
+
+  renderCronCards(jobs) {
+    if (!this.elements.cronDashboardBody) return;
+
+    const html = jobs.map(job => {
+      const enabledClass = job.enabled ? 'enabled' : 'disabled';
+      const scheduleText = this.formatSchedule(job.schedule);
+      const nextRunText = job.nextRun ? new Date(job.nextRun).toLocaleString() : 'N/A';
+      const lastRunStatus = job.lastRunStatus || 'never';
+      const statusClass = lastRunStatus === 'success' ? 'success' : lastRunStatus === 'error' ? 'error' : 'idle';
+
+      return `
+        <div class="cron-card ${enabledClass}" data-job-id="${this.escapeHtml(job.id)}">
+          <div class="cron-card-header">
+            <div class="cron-card-name">
+              <span class="cron-status-indicator ${statusClass}"></span>
+              ${this.escapeHtml(job.name)}
+            </div>
+            <div class="cron-card-actions">
+              <label class="cron-toggle" onclick="event.stopPropagation()">
+                <input type="checkbox" ${job.enabled ? 'checked' : ''}
+                  onchange="window.app.toggleCronJob('${this.escapeHtml(job.id)}', this.checked)">
+                <span class="cron-toggle-slider"></span>
+              </label>
+            </div>
+          </div>
+          <div class="cron-card-body">
+            <div class="cron-card-schedule">
+              <strong>Schedule:</strong> ${this.escapeHtml(scheduleText)}
+            </div>
+            <div class="cron-card-next-run">
+              <strong>Next run:</strong> ${this.escapeHtml(nextRunText)}
+            </div>
+            <div class="cron-card-last-run">
+              <strong>Last run:</strong> <span class="status-${statusClass}">${this.escapeHtml(lastRunStatus)}</span>
+            </div>
+          </div>
+          <div class="cron-card-footer">
+            <button class="cron-btn-run" onclick="event.stopPropagation(); window.app.runCronJob('${this.escapeHtml(job.id)}')">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <polygon points="5 3 19 12 5 21 5 3"></polygon>
+              </svg>
+              Run Now
+            </button>
+            <button class="cron-btn-edit" onclick="event.stopPropagation(); window.app.editCronJob('${this.escapeHtml(job.id)}')">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"></path>
+                <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"></path>
+              </svg>
+              Edit
+            </button>
+            <button class="cron-btn-delete" onclick="event.stopPropagation(); window.app.deleteCronJob('${this.escapeHtml(job.id)}')">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <polyline points="3 6 5 6 21 6"></polyline>
+                <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path>
+              </svg>
+              Delete
+            </button>
+            <button class="cron-btn-history" onclick="event.stopPropagation(); window.app.toggleCronHistory('${this.escapeHtml(job.id)}')">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <polyline points="23 4 23 10 17 10"></polyline>
+                <path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"></path>
+              </svg>
+              History
+            </button>
+          </div>
+          <div class="cron-history" id="cronHistory-${this.escapeHtml(job.id)}" style="display: none;">
+            <div class="cron-history-loading">Loading history...</div>
+          </div>
+        </div>
+      `;
+    }).join('');
+
+    this.elements.cronDashboardBody.innerHTML = html;
+  }
+
+  formatSchedule(schedule) {
+    if (!schedule) return 'Unknown';
+
+    if (schedule.kind === 'cron') {
+      return `Cron: ${schedule.expr} (${schedule.tz || 'UTC'})`;
+    } else if (schedule.kind === 'every') {
+      const ms = schedule.everyMs;
+      if (ms < 60000) return `Every ${ms}ms`;
+      if (ms < 3600000) return `Every ${Math.floor(ms / 60000)} minutes`;
+      if (ms < 86400000) return `Every ${Math.floor(ms / 3600000)} hours`;
+      return `Every ${Math.floor(ms / 86400000)} days`;
+    } else if (schedule.kind === 'at') {
+      return `One-shot: ${new Date(schedule.at).toLocaleString()}`;
+    }
+
+    return 'Unknown';
+  }
+
+  async toggleCronJob(jobId, enabled) {
+    try {
+      await this.request('cron.update', {
+        jobId,
+        patch: { enabled }
+      });
+      this.showToast(`Job ${enabled ? 'enabled' : 'disabled'}`);
+      await this.loadCronJobs();
+    } catch (error) {
+      console.error('Failed to toggle cron job:', error);
+      this.showToast('Failed to toggle job', 'error');
+    }
+  }
+
+  async runCronJob(jobId) {
+    try {
+      await this.request('cron.run', { jobId });
+      this.showToast('Job triggered');
+      await this.loadCronJobs();
+    } catch (error) {
+      console.error('Failed to run cron job:', error);
+      this.showToast('Failed to run job', 'error');
+    }
+  }
+
+  async editCronJob(jobId) {
+    try {
+      const result = await this.request('cron.list', {});
+      const job = result.jobs?.find(j => j.id === jobId);
+
+      if (!job) {
+        this.showToast('Job not found', 'error');
+        return;
+      }
+
+      this.currentEditJobId = jobId;
+      this.openCronModal(job);
+    } catch (error) {
+      console.error('Failed to load cron job for editing:', error);
+      this.showToast('Failed to load job', 'error');
+    }
+  }
+
+  async deleteCronJob(jobId) {
+    if (!confirm('Are you sure you want to delete this cron job?')) {
+      return;
+    }
+
+    try {
+      await this.request('cron.remove', { jobId });
+      this.showToast('Job deleted');
+      await this.loadCronJobs();
+    } catch (error) {
+      console.error('Failed to delete cron job:', error);
+      this.showToast('Failed to delete job', 'error');
+    }
+  }
+
+  async toggleCronHistory(jobId) {
+    const historyEl = document.getElementById(`cronHistory-${jobId}`);
+    if (!historyEl) return;
+
+    if (historyEl.style.display === 'none') {
+      // Show and load history
+      historyEl.style.display = 'block';
+      historyEl.innerHTML = '<div class="cron-history-loading">Loading history...</div>';
+
+      try {
+        const result = await this.request('cron.runs', { jobId });
+        this.renderCronHistory(jobId, result.runs || []);
+      } catch (error) {
+        console.error('Failed to load cron history:', error);
+        historyEl.innerHTML = '<div class="cron-history-error">Failed to load history</div>';
+      }
+    } else {
+      // Hide history
+      historyEl.style.display = 'none';
+    }
+  }
+
+  renderCronHistory(jobId, runs) {
+    const historyEl = document.getElementById(`cronHistory-${jobId}`);
+    if (!historyEl) return;
+
+    if (runs.length === 0) {
+      historyEl.innerHTML = '<div class="cron-history-empty">No run history</div>';
+      return;
+    }
+
+    const html = `
+      <div class="cron-history-list">
+        ${runs.slice(0, 10).map(run => {
+          const statusClass = run.status === 'success' ? 'success' : 'error';
+          const timestamp = new Date(run.timestamp).toLocaleString();
+          return `
+            <div class="cron-history-item ${statusClass}">
+              <span class="cron-history-time">${this.escapeHtml(timestamp)}</span>
+              <span class="cron-history-status status-${statusClass}">${this.escapeHtml(run.status)}</span>
+              ${run.error ? `<div class="cron-history-error">${this.escapeHtml(run.error)}</div>` : ''}
+            </div>
+          `;
+        }).join('')}
+      </div>
+    `;
+
+    historyEl.innerHTML = html;
+  }
+
+  openCronModal(job = null) {
+    if (!this.elements.cronModal) return;
+
+    // Reset form
+    this.currentEditJobId = job ? job.id : null;
+
+    if (this.elements.cronModalTitle) {
+      this.elements.cronModalTitle.textContent = job ? 'Edit Cron Job' : 'Create Cron Job';
+    }
+
+    // Populate form with job data if editing
+    if (job) {
+      document.getElementById('cronJobName').value = job.name || '';
+
+      // Schedule
+      if (job.schedule?.kind === 'cron') {
+        document.getElementById('cronScheduleType').value = 'cron';
+        document.getElementById('cronExpr').value = job.schedule.expr || '';
+        document.getElementById('cronTimezone').value = job.schedule.tz || 'UTC';
+      } else if (job.schedule?.kind === 'every') {
+        document.getElementById('cronScheduleType').value = 'every';
+        document.getElementById('cronInterval').value = job.schedule.everyMs || '';
+      } else if (job.schedule?.kind === 'at') {
+        document.getElementById('cronScheduleType').value = 'at';
+        // Convert ISO to datetime-local format
+        const date = new Date(job.schedule.at);
+        const localDateTime = new Date(date.getTime() - date.getTimezoneOffset() * 60000).toISOString().slice(0, 16);
+        document.getElementById('cronAt').value = localDateTime;
+      }
+
+      // Payload
+      if (job.payload?.kind === 'systemEvent') {
+        document.getElementById('cronPayloadType').value = 'systemEvent';
+        document.getElementById('cronMessage').value = job.payload.text || '';
+      } else if (job.payload?.kind === 'agentTurn') {
+        document.getElementById('cronPayloadType').value = 'agentTurn';
+        document.getElementById('cronMessage').value = job.payload.message || '';
+      }
+
+      document.getElementById('cronSessionTarget').value = job.sessionTarget || 'main';
+      document.getElementById('cronEnabled').checked = job.enabled !== false;
+    } else {
+      // Reset to defaults
+      document.getElementById('cronJobName').value = '';
+      document.getElementById('cronScheduleType').value = 'cron';
+      document.getElementById('cronExpr').value = '';
+      document.getElementById('cronTimezone').value = 'UTC';
+      document.getElementById('cronInterval').value = '';
+      document.getElementById('cronAt').value = '';
+      document.getElementById('cronPayloadType').value = 'systemEvent';
+      document.getElementById('cronMessage').value = '';
+      document.getElementById('cronSessionTarget').value = 'main';
+      document.getElementById('cronEnabled').checked = true;
+    }
+
+    this.updateCronScheduleFields();
+    this.updateCronPayloadFields();
+
+    this.elements.cronModal.style.display = 'flex';
+  }
+
+  closeCronModal() {
+    if (this.elements.cronModal) {
+      this.elements.cronModal.style.display = 'none';
+    }
+    this.currentEditJobId = null;
+  }
+
+  updateCronScheduleFields() {
+    const scheduleType = document.getElementById('cronScheduleType').value;
+
+    document.getElementById('cronExprGroup').style.display = scheduleType === 'cron' ? 'block' : 'none';
+    document.getElementById('cronTimezoneGroup').style.display = scheduleType === 'cron' ? 'block' : 'none';
+    document.getElementById('cronIntervalGroup').style.display = scheduleType === 'every' ? 'block' : 'none';
+    document.getElementById('cronAtGroup').style.display = scheduleType === 'at' ? 'block' : 'none';
+  }
+
+  updateCronPayloadFields() {
+    const payloadType = document.getElementById('cronPayloadType').value;
+    const messageLabel = document.getElementById('cronMessageLabel');
+
+    if (messageLabel) {
+      messageLabel.textContent = payloadType === 'systemEvent' ? 'Event Text' : 'Message';
+    }
+  }
+
+  async saveCronJob() {
+    try {
+      const name = document.getElementById('cronJobName').value;
+      const scheduleType = document.getElementById('cronScheduleType').value;
+      const payloadType = document.getElementById('cronPayloadType').value;
+      const sessionTarget = document.getElementById('cronSessionTarget').value;
+      const enabled = document.getElementById('cronEnabled').checked;
+
+      // Build schedule object
+      let schedule;
+      if (scheduleType === 'cron') {
+        schedule = {
+          kind: 'cron',
+          expr: document.getElementById('cronExpr').value,
+          tz: document.getElementById('cronTimezone').value || 'UTC'
+        };
+      } else if (scheduleType === 'every') {
+        schedule = {
+          kind: 'every',
+          everyMs: parseInt(document.getElementById('cronInterval').value)
+        };
+      } else if (scheduleType === 'at') {
+        // Convert datetime-local to ISO 8601
+        const localDateTime = document.getElementById('cronAt').value;
+        const date = new Date(localDateTime);
+        schedule = {
+          kind: 'at',
+          at: date.toISOString()
+        };
+      }
+
+      // Build payload object
+      let payload;
+      const message = document.getElementById('cronMessage').value;
+      if (payloadType === 'systemEvent') {
+        payload = {
+          kind: 'systemEvent',
+          text: message
+        };
+      } else if (payloadType === 'agentTurn') {
+        payload = {
+          kind: 'agentTurn',
+          message: message
+        };
+      }
+
+      // Create or update job
+      if (this.currentEditJobId) {
+        // Update existing job
+        await this.request('cron.update', {
+          jobId: this.currentEditJobId,
+          patch: {
+            name,
+            schedule,
+            payload,
+            sessionTarget,
+            enabled
+          }
+        });
+        this.showToast('Job updated');
+      } else {
+        // Create new job
+        await this.request('cron.add', {
+          job: {
+            name,
+            schedule,
+            payload,
+            sessionTarget,
+            enabled
+          }
+        });
+        this.showToast('Job created');
+      }
+
+      this.closeCronModal();
+      await this.loadCronJobs();
+    } catch (error) {
+      console.error('Failed to save cron job:', error);
+      this.showToast('Failed to save job', 'error');
+    }
   }
 
   saveAndCloseSettings() {
@@ -9036,4 +9518,5 @@ If multiple files, return multiple objects in the array.`;
 // Initialize
 document.addEventListener('DOMContentLoaded', () => {
   window.clawgpt = new ClawGPT();
+  window.app = window.clawgpt; // Expose for inline event handlers
 });

@@ -66,6 +66,13 @@
           </svg>
           <span class="btn-text">Sessions</span>
         </button>
+        <button class="cron-btn" id="cronBtn" title="Manage scheduled jobs">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <circle cx="12" cy="12" r="10"></circle>
+            <polyline points="12 6 12 12 16 14"></polyline>
+          </svg>
+          <span class="btn-text">Cron Jobs</span>
+        </button>
         <button class="settings-btn" id="settingsBtn">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
             <circle cx="12" cy="12" r="3"></circle>
@@ -103,6 +110,114 @@
       </div>
       <div class="session-dashboard-body" id="sessionDashboardBody">
         <!-- Session cards will be rendered here -->
+      </div>
+    </div>
+
+    <!-- Cron Dashboard Overlay -->
+    <div class="cron-dashboard" id="cronDashboard" style="display: none;">
+      <div class="cron-dashboard-header">
+        <h2>Cron Jobs</h2>
+        <button class="cron-dashboard-close" id="cronDashboardClose">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <line x1="18" y1="6" x2="6" y2="18"></line>
+            <line x1="6" y1="6" x2="18" y2="18"></line>
+          </svg>
+        </button>
+      </div>
+      <div class="cron-dashboard-body" id="cronDashboardBody">
+        <!-- Cron job list will be rendered here -->
+      </div>
+      <div class="cron-dashboard-footer">
+        <button class="cron-create-btn" id="cronCreateBtn">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <line x1="12" y1="5" x2="12" y2="19"></line>
+            <line x1="5" y1="12" x2="19" y2="12"></line>
+          </svg>
+          <span>Create Job</span>
+        </button>
+      </div>
+    </div>
+
+    <!-- Cron Job Create/Edit Modal -->
+    <div class="cron-modal" id="cronModal" style="display: none;">
+      <div class="cron-modal-content">
+        <div class="cron-modal-header">
+          <h3 id="cronModalTitle">Create Cron Job</h3>
+          <button class="cron-modal-close" id="cronModalClose">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <line x1="18" y1="6" x2="6" y2="18"></line>
+              <line x1="6" y1="6" x2="18" y2="18"></line>
+            </svg>
+          </button>
+        </div>
+        <form class="cron-form" id="cronForm">
+          <div class="cron-form-group">
+            <label for="cronJobName">Job Name</label>
+            <input type="text" id="cronJobName" placeholder="e.g., Daily reminder" required>
+          </div>
+
+          <div class="cron-form-group">
+            <label for="cronScheduleType">Schedule Type</label>
+            <select id="cronScheduleType" required>
+              <option value="cron">Cron Expression</option>
+              <option value="every">Recurring Interval</option>
+              <option value="at">One-Shot</option>
+            </select>
+          </div>
+
+          <div class="cron-form-group" id="cronExprGroup">
+            <label for="cronExpr">Cron Expression</label>
+            <input type="text" id="cronExpr" placeholder="e.g., 0 9 * * 1 (Mondays at 9am)">
+            <small>Format: minute hour day month weekday</small>
+          </div>
+
+          <div class="cron-form-group" id="cronTimezoneGroup">
+            <label for="cronTimezone">Timezone</label>
+            <input type="text" id="cronTimezone" placeholder="e.g., America/New_York" value="UTC">
+          </div>
+
+          <div class="cron-form-group" id="cronIntervalGroup" style="display: none;">
+            <label for="cronInterval">Interval (milliseconds)</label>
+            <input type="number" id="cronInterval" placeholder="e.g., 900000 (15 minutes)" min="1000">
+            <small>1 minute = 60000ms, 1 hour = 3600000ms</small>
+          </div>
+
+          <div class="cron-form-group" id="cronAtGroup" style="display: none;">
+            <label for="cronAt">Date & Time (ISO 8601)</label>
+            <input type="datetime-local" id="cronAt">
+            <small>One-time execution at specified time</small>
+          </div>
+
+          <div class="cron-form-group">
+            <label for="cronPayloadType">Payload Type</label>
+            <select id="cronPayloadType" required>
+              <option value="systemEvent">System Event</option>
+              <option value="agentTurn">Agent Turn</option>
+            </select>
+          </div>
+
+          <div class="cron-form-group">
+            <label for="cronMessage" id="cronMessageLabel">Message</label>
+            <textarea id="cronMessage" placeholder="Enter message text..." rows="3" required></textarea>
+          </div>
+
+          <div class="cron-form-group">
+            <label for="cronSessionTarget">Session Target</label>
+            <input type="text" id="cronSessionTarget" placeholder="e.g., main" value="main" required>
+          </div>
+
+          <div class="cron-form-group">
+            <label class="cron-checkbox">
+              <input type="checkbox" id="cronEnabled" checked>
+              <span>Enabled</span>
+            </label>
+          </div>
+
+          <div class="cron-form-actions">
+            <button type="button" class="cron-btn-cancel" id="cronFormCancel">Cancel</button>
+            <button type="submit" class="cron-btn-submit">Save Job</button>
+          </div>
+        </form>
       </div>
     </div>
 
