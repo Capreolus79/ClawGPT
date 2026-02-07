@@ -3162,8 +3162,8 @@ window.CLAWGPT_CONFIG = {
       return;
     }
 
-    // Only show if tab is not focused (don't notify when user is already looking)
-    if (document.hasFocus()) {
+    // Only show if tab is not visible (don't notify when user is actively viewing)
+    if (document.visibilityState === 'visible') {
       return;
     }
 
