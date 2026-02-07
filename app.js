@@ -2580,6 +2580,9 @@ window.CLAWGPT_CONFIG = {
     // Text-to-speech
     this.initSpeechSynthesis();
 
+    // Talk Mode
+    this.initTalkMode();
+
     // Image upload
     this.initImageUpload();
 
@@ -6350,6 +6353,11 @@ Example: [0, 2, 5]`;
         // Track output tokens
         this.addTokens(this.estimateTokens(finalContent));
         this.addAssistantMessage(finalContent);
+
+        // Feed to Talk Mode if active
+        if (this.talkModeActive && this._talkWaitingForResponse) {
+          this.handleTalkModeResponse(finalContent);
+        }
       }
 
       this.streamBuffer = '';
@@ -7235,6 +7243,452 @@ If multiple files, return multiple objects in the array.`;
     a.click();
     document.body.removeChild(a);
     URL.revokeObjectURL(url);
+  }
+
+  // ========================================
+  // Talk Mode — Voice Conversation
+  // ========================================
+
+  initTalkMode() {
+    this.talkModeActive = false;
+    this.talkModeState = 'idle'; // idle, listening, thinking, speaking
+    this.talkModeHandsfree = true;
+    this.talkModePTTHeld = false;
+    this._talkTranscriptEntries = [];
+
+    const btn = document.getElementById('talkModeBtn');
+    const overlay = document.getElementById('talkModeOverlay');
+    const closeBtn = document.getElementById('talkModeClose');
+    const orb = document.getElementById('talkModeOrb');
+    const handsfreeBtn = document.getElementById('talkModeHandsfree');
+    const pttBtn = document.getElementById('talkModePTT');
+    const canvas = document.getElementById('talkModeCanvas');
+
+    if (!btn || !overlay) return;
+
+    btn.addEventListener('click', () => this.openTalkMode());
+    closeBtn.addEventListener('click', () => this.closeTalkMode());
+    orb.addEventListener('click', () => this.onOrbTap());
+
+    handsfreeBtn.addEventListener('click', () => {
+      this.talkModeHandsfree = true;
+      handsfreeBtn.classList.add('active');
+      pttBtn.classList.remove('active');
+    });
+    pttBtn.addEventListener('click', () => {
+      this.talkModeHandsfree = false;
+      pttBtn.classList.add('active');
+      handsfreeBtn.classList.remove('active');
+    });
+
+    // Push-to-talk: hold spacebar
+    document.addEventListener('keydown', (e) => {
+      if (!this.talkModeActive || this.talkModeHandsfree) return;
+      if (e.code === 'Space' && !this.talkModePTTHeld) {
+        e.preventDefault();
+        this.talkModePTTHeld = true;
+        this.startTalkListening();
+      }
+    });
+    document.addEventListener('keyup', (e) => {
+      if (!this.talkModeActive || this.talkModeHandsfree) return;
+      if (e.code === 'Space' && this.talkModePTTHeld) {
+        e.preventDefault();
+        this.talkModePTTHeld = false;
+        this.stopTalkListening();
+      }
+    });
+
+    // Touch hold on orb for PTT
+    orb.addEventListener('touchstart', (e) => {
+      if (!this.talkModeActive || this.talkModeHandsfree) return;
+      e.preventDefault();
+      this.talkModePTTHeld = true;
+      this.startTalkListening();
+    });
+    orb.addEventListener('touchend', (e) => {
+      if (!this.talkModeActive || this.talkModeHandsfree) return;
+      e.preventDefault();
+      this.talkModePTTHeld = false;
+      this.stopTalkListening();
+    });
+
+    // Escape to close
+    document.addEventListener('keydown', (e) => {
+      if (e.code === 'Escape' && this.talkModeActive) this.closeTalkMode();
+    });
+
+    // Set up audio context for visualization
+    this._talkCanvas = canvas;
+    this._talkCtx = canvas ? canvas.getContext('2d') : null;
+  }
+
+  openTalkMode() {
+    if (!this.ttsSupported && !('speechSynthesis' in window)) {
+      this.showToast('Speech synthesis not supported in this browser', true);
+      return;
+    }
+    const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+    if (!SpeechRecognition) {
+      this.showToast('Speech recognition not supported in this browser', true);
+      return;
+    }
+
+    this.talkModeActive = true;
+    document.getElementById('talkModeOverlay').classList.add('open');
+    document.body.style.overflow = 'hidden';
+    this._talkTranscriptEntries = [];
+    this.updateTalkTranscript();
+
+    // Create dedicated recognition for talk mode
+    this._talkRecognition = new SpeechRecognition();
+    this._talkRecognition.continuous = true;
+    this._talkRecognition.interimResults = true;
+    this._talkRecognition.lang = navigator.language || 'en-US';
+
+    this._talkFinalTranscript = '';
+    this._talkInterimTranscript = '';
+    this._talkMicDenied = false;
+
+    this._talkRecognition.onresult = (event) => {
+      let interim = '';
+      for (let i = event.resultIndex; i < event.results.length; i++) {
+        const t = event.results[i][0].transcript;
+        if (event.results[i].isFinal) {
+          this._talkFinalTranscript += t;
+        } else {
+          interim += t;
+        }
+      }
+      this._talkInterimTranscript = interim;
+      // Show what's being heard
+      if (this._talkFinalTranscript || interim) {
+        this.setTalkStatus('🎙️ ' + (this._talkFinalTranscript + interim).slice(-60));
+      }
+    };
+
+    this._talkRecognition.onend = () => {
+      // In hands-free mode, restart if we're still in talk mode and have a transcript to send
+      if (this._talkFinalTranscript.trim()) {
+        this.sendTalkMessage(this._talkFinalTranscript.trim());
+        this._talkFinalTranscript = '';
+        this._talkInterimTranscript = '';
+      } else if (this.talkModeActive && this.talkModeHandsfree && !this._talkMicDenied && this.talkModeState !== 'thinking' && this.talkModeState !== 'speaking') {
+        // Restart listening in hands-free mode
+        this.startTalkListening();
+      }
+    };
+
+    this._talkRecognition.onerror = (event) => {
+      if (event.error === 'aborted' || event.error === 'no-speech') {
+        // These are normal — restart in hands-free
+        if (this.talkModeActive && this.talkModeHandsfree && !this._talkMicDenied && this.talkModeState !== 'thinking' && this.talkModeState !== 'speaking') {
+          setTimeout(() => this.startTalkListening(), 300);
+        }
+        return;
+      }
+      if (event.error === 'not-allowed' || event.error === 'service-not-allowed') {
+        // Mic permission denied — prevent retry loop
+        this._talkMicDenied = true;
+        console.warn('Talk mode: microphone access denied');
+        this.setTalkStatus('🎙️ Microphone access denied — check permissions');
+        return;
+      }
+      console.error('Talk mode recognition error:', event.error);
+      this.setTalkStatus('Error: ' + event.error);
+    };
+
+    // Start audio visualization
+    this.startTalkVisualization();
+
+    // Start listening
+    this.setTalkState('idle');
+    if (this.talkModeHandsfree) {
+      setTimeout(() => this.startTalkListening(), 500);
+    } else {
+      this.setTalkStatus('Hold spacebar or tap orb to talk');
+    }
+  }
+
+  closeTalkMode() {
+    this.talkModeActive = false;
+    document.getElementById('talkModeOverlay').classList.remove('open');
+    document.body.style.overflow = '';
+
+    // Stop everything
+    if (this._talkRecognition) {
+      try { this._talkRecognition.stop(); } catch {}
+    }
+    speechSynthesis.cancel();
+    this.stopTalkVisualization();
+    this.talkModeState = 'idle';
+  }
+
+  onOrbTap() {
+    if (this.talkModeHandsfree) {
+      // In hands-free, orb tap toggles listening
+      if (this.talkModeState === 'listening') {
+        this.stopTalkListening();
+      } else if (this.talkModeState === 'speaking') {
+        // Interrupt AI speech
+        speechSynthesis.cancel();
+        this.setTalkState('idle');
+        this.startTalkListening();
+      } else {
+        this.startTalkListening();
+      }
+    }
+    // In PTT mode, orb tap handled by touchstart/touchend
+  }
+
+  setTalkState(state) {
+    this.talkModeState = state;
+    const orb = document.getElementById('talkModeOrb');
+    orb.className = 'talk-mode-orb ' + state;
+
+    switch (state) {
+      case 'idle':
+        if (this.talkModeHandsfree) this.setTalkStatus('Listening...');
+        else this.setTalkStatus('Hold spacebar or tap orb to talk');
+        break;
+      case 'listening':
+        this.setTalkStatus('🎙️ Listening...');
+        break;
+      case 'thinking':
+        this.setTalkStatus('🧠 Thinking...');
+        break;
+      case 'speaking':
+        this.setTalkStatus('🔊 Speaking...');
+        break;
+    }
+  }
+
+  setTalkStatus(text) {
+    const el = document.getElementById('talkModeStatus');
+    if (el) el.textContent = text;
+  }
+
+  startTalkListening() {
+    if (!this.talkModeActive) return;
+    this._talkMicDenied = false;
+    this._talkFinalTranscript = '';
+    this._talkInterimTranscript = '';
+    this.setTalkState('listening');
+    try {
+      this._talkRecognition.start();
+    } catch {
+      // Already started
+    }
+  }
+
+  stopTalkListening() {
+    this.setTalkState('idle');
+    try {
+      this._talkRecognition.stop();
+    } catch {}
+  }
+
+  sendTalkMessage(text) {
+    if (!text.trim() || !this.connected) return;
+
+    // Add to transcript
+    this._talkTranscriptEntries.push({ role: 'user', text });
+    this.updateTalkTranscript();
+
+    this.setTalkState('thinking');
+
+    // Store callback for when response arrives
+    this._talkWaitingForResponse = true;
+
+    // Send message through existing gateway connection
+    // We need to manually handle this to avoid modifying the chat UI
+    const chat = this.chats[this.currentChatId];
+    if (!chat) return;
+
+    // Add user message to chat
+    chat.messages.push({
+      id: 'msg-' + Date.now(),
+      role: 'user',
+      content: text,
+      timestamp: Date.now()
+    });
+    chat.updatedAt = Date.now();
+    this.saveChats();
+    this.renderChatList();
+
+    // Send via gateway
+    this.streaming = true;
+    this.streamBuffer = '';
+    this.request('chat.send', {
+      sessionKey: this.sessionKey,
+      message: text,
+      deliver: false,
+      idempotencyKey: 'talk-' + Date.now()
+    }).catch(err => {
+      console.error('Talk mode send failed:', err);
+      this.setTalkState('idle');
+      this._talkWaitingForResponse = false;
+      if (this.talkModeHandsfree) this.startTalkListening();
+    });
+  }
+
+  handleTalkModeResponse(text) {
+    if (!this._talkWaitingForResponse || !this.talkModeActive) return;
+    this._talkWaitingForResponse = false;
+
+    // Add to transcript
+    this._talkTranscriptEntries.push({ role: 'assistant', text: text.substring(0, 200) });
+    this.updateTalkTranscript();
+
+    // Speak the response
+    this.speakTalkResponse(text);
+  }
+
+  speakTalkResponse(text) {
+    if (!this.talkModeActive) return;
+    this.setTalkState('speaking');
+
+    // Clean text for speech (remove markdown, code blocks, etc.)
+    let cleanText = text
+      .replace(/```[\s\S]*?```/g, ' code block omitted ')
+      .replace(/`[^`]+`/g, '')
+      .replace(/\*\*([^*]+)\*\*/g, '$1')
+      .replace(/\[([^\]]+)\]\([^)]+\)/g, '$1')
+      .replace(/#{1,6}\s/g, '')
+      .replace(/[-*]\s/g, '')
+      .replace(/\n+/g, '. ')
+      .trim();
+
+    // Limit length for TTS
+    if (cleanText.length > 1000) {
+      cleanText = cleanText.substring(0, 1000) + '... message truncated for speech.';
+    }
+
+    const utterance = new SpeechSynthesisUtterance(cleanText);
+    if (this.preferredVoice) utterance.voice = this.preferredVoice;
+    utterance.rate = 1.05;
+    utterance.pitch = 1.0;
+
+    utterance.onend = () => {
+      if (this.talkModeActive) {
+        this.setTalkState('idle');
+        if (this.talkModeHandsfree) {
+          setTimeout(() => this.startTalkListening(), 300);
+        }
+      }
+    };
+
+    utterance.onerror = () => {
+      if (this.talkModeActive) {
+        this.setTalkState('idle');
+        if (this.talkModeHandsfree) this.startTalkListening();
+      }
+    };
+
+    speechSynthesis.speak(utterance);
+  }
+
+  updateTalkTranscript() {
+    const el = document.getElementById('talkModeTranscript');
+    if (!el) return;
+    const last5 = this._talkTranscriptEntries.slice(-5);
+    el.innerHTML = last5.map(e => {
+      const cls = e.role === 'user' ? 'talk-transcript-user' : 'talk-transcript-ai';
+      const label = e.role === 'user' ? 'You' : 'AI';
+      return `<div class="${cls}"><strong>${label}:</strong> ${this.escapeHtml(e.text)}</div>`;
+    }).join('');
+    el.scrollTop = el.scrollHeight;
+  }
+
+  // Audio visualization
+  startTalkVisualization() {
+    if (!this._talkCanvas) return;
+
+    navigator.mediaDevices.getUserMedia({ audio: true }).then(stream => {
+      this._talkStream = stream;
+      this._talkAudioCtx = new (window.AudioContext || window.webkitAudioContext)();
+      const source = this._talkAudioCtx.createMediaStreamSource(stream);
+      this._talkAnalyser = this._talkAudioCtx.createAnalyser();
+      this._talkAnalyser.fftSize = 256;
+      source.connect(this._talkAnalyser);
+      this._talkDataArray = new Uint8Array(this._talkAnalyser.frequencyBinCount);
+      this._talkAnimating = true;
+      this.drawTalkVisualization();
+    }).catch(err => {
+      console.warn('Microphone access denied for visualization:', err);
+      // Visualization won't work but talk mode still functions
+    });
+  }
+
+  stopTalkVisualization() {
+    this._talkAnimating = false;
+    if (this._talkStream) {
+      this._talkStream.getTracks().forEach(t => t.stop());
+      this._talkStream = null;
+    }
+    if (this._talkAudioCtx) {
+      this._talkAudioCtx.close();
+      this._talkAudioCtx = null;
+    }
+  }
+
+  drawTalkVisualization() {
+    if (!this._talkAnimating || !this._talkAnalyser) return;
+    requestAnimationFrame(() => this.drawTalkVisualization());
+
+    const canvas = this._talkCanvas;
+    const ctx = this._talkCtx;
+    const analyser = this._talkAnalyser;
+    const dataArray = this._talkDataArray;
+
+    analyser.getByteFrequencyData(dataArray);
+
+    const w = canvas.width;
+    const h = canvas.height;
+    const cx = w / 2;
+    const cy = h / 2;
+    const baseRadius = 60;
+
+    ctx.clearRect(0, 0, w, h);
+
+    // Draw radial waveform around orb
+    const bars = dataArray.length;
+    const step = (Math.PI * 2) / bars;
+
+    ctx.strokeStyle = this.talkModeState === 'speaking'
+      ? 'rgba(16, 163, 127, 0.6)'
+      : this.talkModeState === 'listening'
+        ? 'rgba(59, 130, 246, 0.6)'
+        : 'rgba(100, 100, 120, 0.3)';
+    ctx.lineWidth = 2;
+
+    ctx.beginPath();
+    for (let i = 0; i < bars; i++) {
+      const angle = i * step - Math.PI / 2;
+      const amplitude = dataArray[i] / 255;
+      const r = baseRadius + amplitude * 50;
+      const x = cx + Math.cos(angle) * r;
+      const y = cy + Math.sin(angle) * r;
+      if (i === 0) ctx.moveTo(x, y);
+      else ctx.lineTo(x, y);
+    }
+    ctx.closePath();
+    ctx.stroke();
+
+    // Inner glow circle
+    const avg = dataArray.reduce((a, b) => a + b, 0) / dataArray.length;
+    const glowRadius = baseRadius + (avg / 255) * 15;
+    const gradient = ctx.createRadialGradient(cx, cy, 0, cx, cy, glowRadius);
+    gradient.addColorStop(0, this.talkModeState === 'speaking'
+      ? 'rgba(16, 163, 127, 0.15)'
+      : this.talkModeState === 'listening'
+        ? 'rgba(59, 130, 246, 0.15)'
+        : 'rgba(100, 100, 120, 0.05)');
+    gradient.addColorStop(1, 'transparent');
+    ctx.fillStyle = gradient;
+    ctx.beginPath();
+    ctx.arc(cx, cy, glowRadius, 0, Math.PI * 2);
+    ctx.fill();
   }
 }
 

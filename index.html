@@ -139,6 +139,13 @@
               <line x1="8" y1="23" x2="16" y2="23"></line>
             </svg>
           </button>
+          <button class="talk-mode-btn" id="talkModeBtn" title="Talk Mode — voice conversation">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"/>
+              <path d="M19 10v2a7 7 0 0 1-14 0v-2"/>
+              <circle cx="12" cy="12" r="10" stroke-dasharray="4 4"/>
+            </svg>
+          </button>
           <button class="send-btn" id="sendBtn" disabled>
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
               <line x1="22" y1="2" x2="11" y2="13"></line>
@@ -226,6 +233,23 @@
         </div>
       </div>
     </aside>
+  </div>
+
+  <!-- Talk Mode Overlay -->
+  <div class="talk-mode-overlay" id="talkModeOverlay">
+    <button class="talk-mode-close" id="talkModeClose" title="Exit Talk Mode">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+    </button>
+    <div class="talk-mode-center">
+      <canvas id="talkModeCanvas" width="300" height="300"></canvas>
+      <div class="talk-mode-orb" id="talkModeOrb"></div>
+    </div>
+    <div class="talk-mode-status" id="talkModeStatus">Tap to start</div>
+    <div class="talk-mode-mode-toggle">
+      <button class="talk-mode-mode-btn active" id="talkModeHandsfree" title="Hands-free">Hands-free</button>
+      <button class="talk-mode-mode-btn" id="talkModePTT" title="Push to talk">Push-to-talk</button>
+    </div>
+    <div class="talk-mode-transcript" id="talkModeTranscript"></div>
   </div>
 
   <!-- Search Modal -->
