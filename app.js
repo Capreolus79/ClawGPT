@@ -2523,7 +2523,7 @@ window.CLAWGPT_CONFIG = {
     
     // Scroll to bottom button
     this.elements.scrollToBottomBtn.addEventListener('click', () => {
-      this.scrollToBottom();
+      this.elements.messages.scrollTo({ top: this.elements.messages.scrollHeight, behavior: 'smooth' });
     });
     
     // Show/hide scroll to bottom button based on scroll position
@@ -2549,9 +2549,9 @@ window.CLAWGPT_CONFIG = {
       // Don't trigger if any modifier keys pressed
       if (e.ctrlKey || e.metaKey || e.altKey || e.shiftKey) return;
       
-      // Scroll to bottom
+      // Force scroll to bottom
       e.preventDefault(); // Prevent page scroll
-      this.scrollToBottom();
+      this.elements.messages.scrollTo({ top: this.elements.messages.scrollHeight, behavior: 'smooth' });
     });
 
     // Voice input button
