@@ -199,6 +199,7 @@ class ClawGPT {
       this.smartSearch = settings.smartSearch !== false;
       this.semanticSearch = settings.semanticSearch || false;
       this.showTokens = settings.showTokens !== false;
+      this.desktopNotifications = settings.desktopNotifications || false;
     } else {
       // No saved settings - use config.js values or defaults
       this.gatewayUrl = config.gatewayUrl || 'ws://127.0.0.1:18789';
@@ -208,6 +209,7 @@ class ClawGPT {
       this.smartSearch = true;
       this.semanticSearch = false;
       this.showTokens = true;
+      this.desktopNotifications = false;
     }
 
     // Log if using config.js
@@ -261,7 +263,8 @@ class ClawGPT {
       darkMode: this.darkMode,
       smartSearch: this.smartSearch,
       semanticSearch: this.semanticSearch,
-      showTokens: this.showTokens
+      showTokens: this.showTokens,
+      desktopNotifications: this.desktopNotifications
     };
 
     // Only save connection settings if NOT using config.js
@@ -2486,6 +2489,11 @@ window.CLAWGPT_CONFIG = {
     this.elements.authToken.value = this.authToken;
     this.elements.sessionKeyInput.value = this.sessionKey;
     this.elements.darkMode.checked = this.darkMode;
+    
+    // Set checkbox values
+    const desktopNotificationsEl = document.getElementById('desktopNotifications');
+    if (desktopNotificationsEl) desktopNotificationsEl.checked = this.desktopNotifications;
+    
     this.applyTheme();
 
     // Event listeners
@@ -3115,8 +3123,69 @@ window.CLAWGPT_CONFIG = {
       this.updateTokenDisplay();
     }
 
+    const desktopNotificationsEl = document.getElementById('desktopNotifications');
+    if (desktopNotificationsEl) {
+      const wasEnabled = this.desktopNotifications;
+      this.desktopNotifications = desktopNotificationsEl.checked;
+      
+      // Request permission if enabling for the first time
+      if (this.desktopNotifications && !wasEnabled) {
+        this.requestNotificationPermission();
+      }
+    }
+
     this.saveSettings();
     this.closeSettings();
+  }
+
+  async requestNotificationPermission() {
+    if (!('Notification' in window)) {
+      console.log('Browser does not support notifications');
+      return false;
+    }
+
+    if (Notification.permission === 'granted') {
+      return true;
+    }
+
+    if (Notification.permission !== 'denied') {
+      const permission = await Notification.requestPermission();
+      return permission === 'granted';
+    }
+
+    return false;
+  }
+
+  showNotification(title, body) {
+    // Only show if enabled and browser supports it
+    if (!this.desktopNotifications || !('Notification' in window)) {
+      return;
+    }
+
+    // Only show if tab is not focused (don't notify when user is already looking)
+    if (document.hasFocus()) {
+      return;
+    }
+
+    // Check permission
+    if (Notification.permission === 'granted') {
+      const notification = new Notification(title, {
+        body: body,
+        icon: '/favicon.ico',
+        badge: '/favicon.ico',
+        tag: 'clawgpt-message', // Replace previous notification
+        requireInteraction: false
+      });
+
+      // Focus window when notification is clicked
+      notification.onclick = () => {
+        window.focus();
+        notification.close();
+      };
+
+      // Auto-close after 5 seconds
+      setTimeout(() => notification.close(), 5000);
+    }
   }
 
   updateSettingsButtons() {
@@ -6244,6 +6313,11 @@ Example: [0, 2, 5]`;
     this.chats[this.currentChatId].updatedAt = Date.now();
     this.saveChats(); // Save without broadcasting full chat (incremental relay below)
 
+    // Show desktop notification if enabled
+    const chat = this.chats[this.currentChatId];
+    const preview = content.substring(0, 100) + (content.length > 100 ? '...' : '');
+    this.showNotification(chat.title || 'ClawGPT', preview);
+
     // Send only the new message to phone (not the entire chat)
     if (this.relayEncrypted) {
       this.sendRelayMessage({
@@ -6254,7 +6328,6 @@ Example: [0, 2, 5]`;
     }
 
     // Store in clawgpt-memory for search
-    const chat = this.chats[this.currentChatId];
     this.memoryStorage.storeMessage(
       this.currentChatId,
       chat.title,
