@@ -2445,6 +2445,7 @@ window.CLAWGPT_CONFIG = {
       messageInput: document.getElementById('messageInput'),
       sendBtn: document.getElementById('sendBtn'),
       stopBtn: document.getElementById('stopBtn'),
+      scrollToBottomBtn: document.getElementById('scrollToBottomBtn'),
       newChatBtn: document.getElementById('newChatBtn'),
       settingsBtn: document.getElementById('settingsBtn'),
       settingsModal: document.getElementById('settingsModal'),
@@ -2510,6 +2511,18 @@ window.CLAWGPT_CONFIG = {
 
     this.elements.newChatBtn.addEventListener('click', () => this.newChat());
     this.elements.stopBtn.addEventListener('click', () => this.stopGeneration());
+    
+    // Scroll to bottom button
+    this.elements.scrollToBottomBtn.addEventListener('click', () => {
+      this.elements.messages.scrollTo({ top: this.elements.messages.scrollHeight, behavior: 'smooth' });
+    });
+    
+    // Show/hide scroll to bottom button based on scroll position
+    this.elements.messages.addEventListener('scroll', () => {
+      const messagesEl = this.elements.messages;
+      const isNearBottom = messagesEl.scrollHeight - messagesEl.scrollTop - messagesEl.clientHeight < 100;
+      this.elements.scrollToBottomBtn.style.display = isNearBottom ? 'none' : 'flex';
+    });
 
     // Voice input button
     this.initVoiceInput();
@@ -5827,7 +5840,13 @@ Example: [0, 2, 5]`;
   }
 
   scrollToBottom() {
-    this.elements.messages.scrollTop = this.elements.messages.scrollHeight;
+    // Only auto-scroll if user is already near the bottom (within 100px)
+    const messagesEl = this.elements.messages;
+    const isNearBottom = messagesEl.scrollHeight - messagesEl.scrollTop - messagesEl.clientHeight < 100;
+    
+    if (isNearBottom) {
+      messagesEl.scrollTop = messagesEl.scrollHeight;
+    }
   }
 
   async sendMessage(textOverride = null) {

@@ -855,7 +855,7 @@ body {
   max-width: 768px;
   margin: 0 auto;
   display: flex;
-  align-items: flex-end;
+  align-items: center;
   gap: 12px;
   background: var(--input-bg);
   border: 1px solid var(--border-color);
@@ -1191,6 +1191,36 @@ body {
 .stop-btn svg {
   width: 18px;
   height: 18px;
+}
+
+.scroll-to-bottom-btn {
+  position: fixed;
+  bottom: 140px;
+  right: 32px;
+  width: 40px;
+  height: 40px;
+  background: var(--surface-secondary);
+  border: 1px solid var(--border-color);
+  border-radius: 50%;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.2s;
+  z-index: 100;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
+}
+
+.scroll-to-bottom-btn:hover {
+  background: var(--surface-hover);
+  transform: translateY(-2px);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2);
+}
+
+.scroll-to-bottom-btn svg {
+  width: 20px;
+  height: 20px;
+  color: var(--text-primary);
 }
 
 .disclaimer {
