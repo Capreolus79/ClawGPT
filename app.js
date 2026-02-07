@@ -6956,15 +6956,8 @@ If multiple files, return multiple objects in the array.`;
   }
 
   updateIntelligenceProgress(content) {
-    // Show partial progress while streaming
-    const results = this.elements.intelligenceResults;
-    const charCount = content.length;
-    results.innerHTML = `
-      <div class="intelligence-loading">
-        <div class="intelligence-spinner"></div>
-        <span>Analyzing... (${charCount} chars received)</span>
-      </div>
-    `;
+    // Silently buffer — don't update UI on every chunk.
+    // The loading spinner from runIntelligenceExtraction() stays visible.
   }
 
   handleIntelligenceResponse(content) {
@@ -7197,7 +7190,7 @@ If multiple files, return multiple objects in the array.`;
     this.downloadFile(file.filename, file.markdown, 'text/markdown');
   }
 
-  downloadAllIntelligence() {
+  async downloadAllIntelligence() {
     const chat = this.chats[this.currentChatId];
     if (!chat?.intelligenceVersions) return;
     const ver = chat.intelligenceCurrentVersion || chat.intelligenceVersions.length;
@@ -7208,15 +7201,27 @@ If multiple files, return multiple objects in the array.`;
       // Single file — download directly
       const f = version.files[0];
       this.downloadFile(f.filename, f.markdown, 'text/markdown');
-    } else {
-      // Multiple files — combine into one with separators
-      const chatTitle = (chat.title || 'conversation').replace(/[^a-z0-9]+/gi, '-').toLowerCase();
-      let combined = `# Intelligence Extract: ${chat.title || 'Untitled'}\n`;
-      combined += `_Generated: ${new Date(version.timestamp).toLocaleString()}_\n\n`;
+    } else if (typeof JSZip !== 'undefined') {
+      // Multiple files — create zip
+      const zip = new JSZip();
       for (const f of version.files) {
-        combined += `---\n\n_File: ${f.filename}_\n\n${f.markdown}\n\n`;
+        zip.file(f.filename, f.markdown);
       }
-      this.downloadFile(`intelligence-${chatTitle}.md`, combined, 'text/markdown');
+      const blob = await zip.generateAsync({ type: 'blob' });
+      const chatTitle = (chat.title || 'conversation').replace(/[^a-z0-9]+/gi, '-').toLowerCase();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `intelligence-${chatTitle}.zip`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+    } else {
+      // Fallback if JSZip not loaded — download each file individually
+      for (const f of version.files) {
+        this.downloadFile(f.filename, f.markdown, 'text/markdown');
+      }
     }
   }
 
