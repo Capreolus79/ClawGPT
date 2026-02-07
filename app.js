@@ -2523,7 +2523,7 @@ window.CLAWGPT_CONFIG = {
     
     // Scroll to bottom button
     this.elements.scrollToBottomBtn.addEventListener('click', () => {
-      this.elements.messages.scrollTo({ top: this.elements.messages.scrollHeight, behavior: 'smooth' });
+      this.elements.messages.scrollTop = this.elements.messages.scrollHeight;
     });
     
     // Show/hide scroll to bottom button based on scroll position
@@ -2531,6 +2531,27 @@ window.CLAWGPT_CONFIG = {
       const messagesEl = this.elements.messages;
       const isNearBottom = messagesEl.scrollHeight - messagesEl.scrollTop - messagesEl.clientHeight < 100;
       this.elements.scrollToBottomBtn.style.display = isNearBottom ? 'none' : 'flex';
+    });
+
+    // Spacebar to scroll to bottom (only when not typing in input fields)
+    document.addEventListener('keydown', (e) => {
+      // Only trigger if spacebar pressed
+      if (e.key !== ' ' && e.code !== 'Space') return;
+      
+      // Don't trigger if typing in input/textarea/contenteditable
+      const target = e.target;
+      if (target.tagName === 'INPUT' || 
+          target.tagName === 'TEXTAREA' || 
+          target.isContentEditable) {
+        return;
+      }
+      
+      // Don't trigger if any modifier keys pressed
+      if (e.ctrlKey || e.metaKey || e.altKey || e.shiftKey) return;
+      
+      // Force scroll to bottom
+      e.preventDefault(); // Prevent page scroll
+      this.elements.messages.scrollTop = this.elements.messages.scrollHeight;
     });
 
     // Voice input button
@@ -2853,6 +2874,8 @@ window.CLAWGPT_CONFIG = {
       
       if (action === 'rename') {
         this.renameChat(chatId);
+      } else if (action === 'regenerate-title') {
+        this.generateAITitle(chatId);
       } else if (action === 'pin') {
         this.togglePin(chatId);
       } else if (action === 'delete') {
@@ -4480,7 +4503,7 @@ Example: [0, 2, 5]`;
 
     return `
       <div class="chat-item ${isActive ? 'active' : ''} ${isPinned ? 'pinned' : ''} ${isBranch ? 'branch' : ''}" data-id="${id}" data-pinned="${isPinned}" draggable="true">
-        <span class="chat-title">${branchIndicator}${summaryIndicator}${pinIndicator}${this.escapeHtml(chat.title)}</span>
+        <span class="chat-title" title="${this.escapeHtml(chat.title)}">${branchIndicator}${summaryIndicator}${pinIndicator}${this.escapeHtml(chat.title)}</span>
       </div>
     `;
   }
@@ -5991,10 +6014,11 @@ Example: [0, 2, 5]`;
       this.currentChatId = this.generateId();
       this.chats[this.currentChatId] = {
         id: this.currentChatId,
-        title: (text || 'Image').slice(0, 30) + ((text || '').length > 30 ? '...' : ''),
+        title: 'New chat',
         messages: [],
         createdAt: Date.now(),
-        updatedAt: Date.now()
+        updatedAt: Date.now(),
+        needsAITitle: true // Flag to generate title after first response
       };
     }
 
@@ -6109,7 +6133,13 @@ Example: [0, 2, 5]`;
     this.streamBuffer = '';
     this.updateStreamingUI();
     this.renderMessages();
-    this.scrollToBottom();
+    
+    // Double RAF ensures layout is complete before scroll
+    requestAnimationFrame(() => {
+      requestAnimationFrame(() => {
+        this.elements.messages.scrollTop = this.elements.messages.scrollHeight;
+      });
+    });
 
     try {
       // Check if we're switching to a different chat
@@ -6213,6 +6243,14 @@ Example: [0, 2, 5]`;
     if (payload.sessionKey === '__clawgpt_semantic') {
       if ((state === 'final' || state === 'aborted') && content) {
         this.handleSemanticSearchResponse(content);
+      }
+      return;
+    }
+
+    // Handle title generation session responses
+    if (payload.sessionKey === '__clawgpt_title_gen') {
+      if ((state === 'final' || state === 'aborted') && content) {
+        this.handleTitleResponse(content);
       }
       return;
     }
@@ -6337,6 +6375,13 @@ Example: [0, 2, 5]`;
     ).catch(err => console.warn('Memory storage failed:', err));
 
     this.renderMessages();
+
+    // Generate AI title after first response if needed
+    if (chat.needsAITitle && chat.messages.length >= 2) {
+      delete chat.needsAITitle; // Clear flag
+      this.saveChats();
+      this.generateAITitle(this.currentChatId);
+    }
 
     // Check if we should generate/update summary
     this.maybeGenerateSummary(this.currentChatId);
@@ -6478,6 +6523,114 @@ Return this exact JSON structure:
     }
 
     this.pendingSummary = null;
+  }
+
+  // ===== AI TITLE GENERATION =====
+
+  async generateAITitle(chatId) {
+    const chat = this.chats[chatId];
+    if (!chat || !this.connected) return;
+
+    // Need at least one exchange to generate a title
+    if (chat.messages.length < 2) return;
+
+    // Build conversation context (first 2-3 exchanges max)
+    const messagesToUse = chat.messages.slice(0, Math.min(6, chat.messages.length));
+    const conversation = messagesToUse.map(m => {
+      const role = m.role === 'user' ? 'User' : 'Assistant';
+      // Truncate very long messages
+      const content = m.content.length > 300
+        ? m.content.slice(0, 300) + '...'
+        : m.content;
+      return `${role}: ${content}`;
+    }).join('\n\n');
+
+    const prompt = `Based on this conversation, generate a concise 3-5 word title. Return ONLY the title text, no quotes, no explanation:
+
+${conversation}
+
+Title:`;
+
+    try {
+      console.log('Generating AI title for chat:', chatId);
+
+      // Track title prompt tokens
+      this.addTokens(this.estimateTokens(prompt));
+
+      // Use a temporary session
+      const result = await this.request('chat.send', {
+        sessionKey: '__clawgpt_title_gen',
+        message: prompt,
+        deliver: false,
+        idempotencyKey: 'title-' + chatId + '-' + Date.now()
+      });
+
+      // Response comes via events
+      this.pendingTitleGen = { chatId, startedAt: Date.now() };
+
+      // Show visual feedback
+      this.showToast('Generating title...', false);
+
+    } catch (error) {
+      console.error('Failed to generate title:', error);
+      this.showToast('Title generation failed', true);
+    }
+  }
+
+  handleTitleResponse(content) {
+    if (!this.pendingTitleGen) return;
+
+    // Track title response tokens
+    this.addTokens(this.estimateTokens(content));
+
+    const { chatId } = this.pendingTitleGen;
+    const chat = this.chats[chatId];
+
+    if (!chat) {
+      this.pendingTitleGen = null;
+      return;
+    }
+
+    try {
+      // Clean up the response (remove quotes, extra whitespace, etc.)
+      let title = content.trim()
+        .replace(/^["']|["']$/g, '') // Remove surrounding quotes
+        .replace(/^Title:\s*/i, '') // Remove "Title:" prefix if present
+        .replace(/\n.*/s, '') // Take only first line
+        .trim();
+
+      // Limit length
+      if (title.length > 50) {
+        title = title.substring(0, 47) + '...';
+      }
+
+      // Use the title if it looks reasonable
+      if (title.length > 0 && title.length < 100) {
+        const oldTitle = chat.title;
+        chat.title = title;
+        this.saveChats();
+        
+        // Force UI update
+        this.renderChatList();
+        
+        // If this is the current chat, update the header too
+        if (this.currentChatId === chatId) {
+          this.renderMessages();
+        }
+        
+        console.log(`AI title updated: "${oldTitle}" → "${title}"`);
+        this.showToast('Title updated', false);
+      } else {
+        console.warn('Generated title looks invalid:', title);
+        this.showToast('Title generation failed', true);
+      }
+
+    } catch (error) {
+      console.error('Failed to parse title response:', error, content);
+      this.showToast('Title generation failed', true);
+    }
+
+    this.pendingTitleGen = null;
   }
 }
 
