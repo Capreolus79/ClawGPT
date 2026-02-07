@@ -2465,6 +2465,7 @@ window.CLAWGPT_CONFIG = {
       cancelRenameBtn: document.getElementById('cancelRenameBtn'),
       saveRenameBtn: document.getElementById('saveRenameBtn'),
       renameChatInput: document.getElementById('renameChatInput'),
+      chatContextMenu: document.getElementById('chatContextMenu'),
       editMessageModal: document.getElementById('editMessageModal'),
       closeEditMessage: document.getElementById('closeEditMessage'),
       cancelEditMessageBtn: document.getElementById('cancelEditMessageBtn'),
@@ -2829,6 +2830,32 @@ window.CLAWGPT_CONFIG = {
     this.elements.renameModal.addEventListener('click', (e) => {
       if (e.target === this.elements.renameModal) {
         this.closeRenameModal();
+      }
+    });
+
+    // Context menu event listeners
+    this.contextMenuChatId = null;
+    this.elements.chatContextMenu.addEventListener('click', (e) => {
+      const item = e.target.closest('.chat-context-menu-item');
+      if (!item || !this.contextMenuChatId) return;
+      
+      const action = item.dataset.action;
+      const chatId = this.contextMenuChatId; // Save ID before hiding menu
+      this.hideContextMenu();
+      
+      if (action === 'rename') {
+        this.renameChat(chatId);
+      } else if (action === 'pin') {
+        this.togglePin(chatId);
+      } else if (action === 'delete') {
+        this.deleteChat(chatId);
+      }
+    });
+
+    // Hide context menu when clicking outside
+    document.addEventListener('click', (e) => {
+      if (!this.elements.chatContextMenu.contains(e.target)) {
+        this.hideContextMenu();
       }
     });
 
@@ -4335,13 +4362,18 @@ Example: [0, 2, 5]`;
 
     this.elements.chatList.innerHTML = this.sanitize(html);
 
-    // Add click handlers
+    // Add click and context menu handlers
     this.elements.chatList.querySelectorAll('.chat-item').forEach(item => {
       const chatId = item.dataset.id;
 
       item.addEventListener('click', (e) => {
-        if (e.target.closest('.pin-btn') || e.target.closest('.delete-btn') || e.target.closest('.rename-btn')) return;
         this.selectChat(chatId);
+      });
+
+      // Right-click to show context menu
+      item.addEventListener('contextmenu', (e) => {
+        e.preventDefault();
+        this.showContextMenu(chatId, e.clientX, e.clientY);
       });
 
       // Drag handlers for all items
@@ -4349,28 +4381,6 @@ Example: [0, 2, 5]`;
       item.addEventListener('dragover', (e) => this.handleDragOver(e, chatId));
       item.addEventListener('drop', (e) => this.handleDrop(e, chatId));
       item.addEventListener('dragend', (e) => this.handleDragEnd(e));
-    });
-
-    this.elements.chatList.querySelectorAll('.delete-btn').forEach(btn => {
-      btn.addEventListener('click', (e) => {
-        e.stopPropagation();
-        this.deleteChat(btn.dataset.id);
-      });
-    });
-
-    this.elements.chatList.querySelectorAll('.pin-btn').forEach(btn => {
-      btn.addEventListener('click', (e) => {
-        e.stopPropagation();
-        this.togglePin(btn.dataset.id);
-      });
-    });
-
-    this.elements.chatList.querySelectorAll('.rename-btn').forEach(btn => {
-      btn.addEventListener('click', (e) => {
-        console.log('Rename btn clicked, dataset.id:', btn.dataset.id);
-        e.stopPropagation();
-        this.renameChat(btn.dataset.id);
-      });
     });
 
     const expandBtn = document.getElementById('expandPinnedBtn');
@@ -4384,15 +4394,10 @@ Example: [0, 2, 5]`;
 
   renderChatItem(id, chat, isPinned, isBranch = false) {
     const isActive = id === this.currentChatId;
-    const pinTitle = isPinned ? 'Unpin' : 'Pin';
     const hasSummary = chat.metadata?.summary;
     const pinIcon = `<svg class="pin-icon ${isPinned ? 'pinned' : ''}" viewBox="0 0 24 24" fill="${isPinned ? 'currentColor' : 'none'}" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
       <line x1="12" y1="17" x2="12" y2="22"/>
       <path d="M5 17h14v-1.76a2 2 0 0 0-1.11-1.79l-1.78-.9A2 2 0 0 1 15 10.76V6h1a2 2 0 0 0 0-4H8a2 2 0 0 0 0 4h1v4.76a2 2 0 0 1-1.11 1.79l-1.78.9A2 2 0 0 0 5 15.24Z"/>
-    </svg>`;
-    const editIcon = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-      <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/>
-      <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/>
     </svg>`;
     const branchIcon = `<svg class="branch-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
       <line x1="6" y1="3" x2="6" y2="15"/>
@@ -4402,15 +4407,11 @@ Example: [0, 2, 5]`;
     </svg>`;
     const summaryIndicator = hasSummary ? `<span class="summary-indicator" title="${this.escapeHtml(chat.metadata.summary)}">✨</span>` : '';
     const branchIndicator = isBranch ? `<span class="branch-indicator">${branchIcon}</span>` : '';
+    const pinIndicator = isPinned ? `<span class="pin-indicator">${pinIcon}</span>` : '';
 
     return `
       <div class="chat-item ${isActive ? 'active' : ''} ${isPinned ? 'pinned' : ''} ${isBranch ? 'branch' : ''}" data-id="${id}" data-pinned="${isPinned}" draggable="true">
-        <span class="chat-title">${branchIndicator}${summaryIndicator}${this.escapeHtml(chat.title)}</span>
-        <div class="chat-actions">
-          <button class="rename-btn" data-id="${id}" title="Rename">${editIcon}</button>
-          <button class="pin-btn" data-id="${id}" title="${pinTitle}">${pinIcon}</button>
-          <button class="delete-btn" data-id="${id}" title="Delete">&times;</button>
-        </div>
+        <span class="chat-title">${branchIndicator}${summaryIndicator}${pinIndicator}${this.escapeHtml(chat.title)}</span>
       </div>
     `;
   }
@@ -4459,6 +4460,39 @@ Example: [0, 2, 5]`;
     const modal = document.getElementById('renameModal');
     modal.classList.remove('open');
     this.renamingChatId = null;
+  }
+
+  showContextMenu(chatId, x, y) {
+    this.contextMenuChatId = chatId;
+    const menu = this.elements.chatContextMenu;
+    const chat = this.chats[chatId];
+    
+    // Update pin button text
+    const pinText = menu.querySelector('.pin-text');
+    if (pinText) {
+      pinText.textContent = chat?.pinned ? 'Unpin' : 'Pin';
+    }
+    
+    // Position the menu
+    menu.style.left = `${x}px`;
+    menu.style.top = `${y}px`;
+    menu.classList.add('visible');
+    
+    // Adjust position if menu goes off-screen
+    setTimeout(() => {
+      const rect = menu.getBoundingClientRect();
+      if (rect.right > window.innerWidth) {
+        menu.style.left = `${x - rect.width}px`;
+      }
+      if (rect.bottom > window.innerHeight) {
+        menu.style.top = `${y - rect.height}px`;
+      }
+    }, 0);
+  }
+
+  hideContextMenu() {
+    this.elements.chatContextMenu.classList.remove('visible');
+    this.contextMenuChatId = null;
   }
 
   renderMessages() {
