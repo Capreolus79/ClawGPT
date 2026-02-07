@@ -8968,11 +8968,19 @@ If multiple files, return multiple objects in the array.`;
       this.talkModeHandsfree = true;
       handsfreeBtn.classList.add('active');
       pttBtn.classList.remove('active');
+      this.setTalkState('idle');
+      // Start listening automatically in handsfree mode
+      if (this.talkModeActive && !this._talkWaitingForResponse && this.talkModeState !== 'speaking') {
+        this.startTalkListening();
+      }
     });
     pttBtn.addEventListener('click', () => {
       this.talkModeHandsfree = false;
       pttBtn.classList.add('active');
       handsfreeBtn.classList.remove('active');
+      // Stop any active listening when switching to PTT
+      this.stopTalkListening();
+      this.setTalkState('idle');
     });
 
     // Push-to-talk: hold spacebar
@@ -9003,6 +9011,26 @@ If multiple files, return multiple objects in the array.`;
     orb.addEventListener('touchend', (e) => {
       if (!this.talkModeActive || this.talkModeHandsfree) return;
       e.preventDefault();
+      this.talkModePTTHeld = false;
+      this.stopTalkListening();
+    });
+
+    // Mouse hold on orb for PTT (desktop)
+    orb.addEventListener('mousedown', (e) => {
+      if (!this.talkModeActive || this.talkModeHandsfree) return;
+      e.preventDefault();
+      this.talkModePTTHeld = true;
+      this.startTalkListening();
+    });
+    orb.addEventListener('mouseup', (e) => {
+      if (!this.talkModeActive || this.talkModeHandsfree) return;
+      e.preventDefault();
+      this.talkModePTTHeld = false;
+      this.stopTalkListening();
+    });
+    // Also handle mouse leaving the orb while held
+    orb.addEventListener('mouseleave', (e) => {
+      if (!this.talkModeActive || this.talkModeHandsfree || !this.talkModePTTHeld) return;
       this.talkModePTTHeld = false;
       this.stopTalkListening();
     });
@@ -9219,7 +9247,7 @@ If multiple files, return multiple objects in the array.`;
         this.startTalkListening();
       }
     }
-    // In PTT mode, orb tap handled by touchstart/touchend
+    // In PTT mode, orb click/tap handled by mousedown/mouseup/touchstart/touchend
   }
 
   setTalkState(state) {
