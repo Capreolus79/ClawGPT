@@ -213,20 +213,20 @@ Currently when the assistant sends a file (via `message` tool with `filePath`), 
 
 | Priority | Feature | Effort | Impact |
 |----------|---------|--------|--------|
-| P0 | ~~Conversation Intelligence Panel~~ ✅ | Medium | 🔥🔥🔥 |
-| P0 | Talk Mode | Medium-High | 🔥🔥🔥 |
-| P0 | Artifacts Panel | Medium | 🔥🔥🔥 |
-| P0 | File Attachments from Assistant | Low-Medium | 🔥🔥🔥 |
-| P1 | Agent Workspace Viewer | Medium | 🔥🔥 |
-| P1 | Session Dashboard | Low-Medium | 🔥🔥 |
-| P1 | Cron Job Manager | Medium | 🔥 |
-| P1 | Live Notifications | Low | 🔥🔥 |
-| P1 | Memory Browser | Low-Medium | 🔥🔥 |
-| P2 | Prompt Library | Low | 🔥 |
-| P2 | Image Generation Panel | Low-Medium | 🔥🔥 |
-| P2 | Tool Call Visualization | Low-Medium | 🔥🔥 |
-| P2 | Exec Approval UI | Low | 🔥 |
-| P3 | Multi-Agent Chat | High | 🔥🔥 |
+| P0 | ~~Conversation Intelligence Panel~~ ✅ | Medium | 🔥🔥🔥 | `6762328` |
+| P0 | ~~Talk Mode~~ ✅ | Medium-High | 🔥🔥🔥 | `afbc90b` |
+| P0 | ~~Artifacts Panel~~ ✅ | Medium | 🔥🔥🔥 | `808cfce` |
+| P0 | ~~File Attachments from Assistant~~ ✅ | Low-Medium | 🔥🔥🔥 | `cf1b979` |
+| P1 | ~~Agent Workspace Viewer~~ ✅ | Medium | 🔥🔥 | `428947a` |
+| P1 | ~~Session Dashboard~~ ✅ | Low-Medium | 🔥🔥 | `70c4964` |
+| P1 | ~~Cron Job Manager~~ ✅ | Medium | 🔥 | `caba4d4` |
+| P1 | Live Notifications | Low | 🔥🔥 | — |
+| P1 | Memory Browser | Low-Medium | 🔥🔥 | — |
+| P2 | Prompt Library | Low | 🔥 | — |
+| P2 | Image Generation Panel | Low-Medium | 🔥🔥 | — |
+| P2 | Tool Call Visualization | Low-Medium | 🔥🔥 | — |
+| P2 | Exec Approval UI | Low | 🔥 | — |
+| P3 | Multi-Agent Chat | High | 🔥🔥 | — |
 
 ---
 
