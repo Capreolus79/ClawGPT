@@ -2523,7 +2523,7 @@ window.CLAWGPT_CONFIG = {
     
     // Scroll to bottom button
     this.elements.scrollToBottomBtn.addEventListener('click', () => {
-      this.elements.messages.scrollTo({ top: this.elements.messages.scrollHeight, behavior: 'smooth' });
+      this.elements.messages.scrollTop = this.elements.messages.scrollHeight;
     });
     
     // Show/hide scroll to bottom button based on scroll position
@@ -2551,7 +2551,7 @@ window.CLAWGPT_CONFIG = {
       
       // Force scroll to bottom
       e.preventDefault(); // Prevent page scroll
-      this.elements.messages.scrollTo({ top: this.elements.messages.scrollHeight, behavior: 'smooth' });
+      this.elements.messages.scrollTop = this.elements.messages.scrollHeight;
     });
 
     // Voice input button
@@ -6133,7 +6133,13 @@ Example: [0, 2, 5]`;
     this.streamBuffer = '';
     this.updateStreamingUI();
     this.renderMessages();
-    this.scrollToBottom();
+    
+    // Double RAF ensures layout is complete before scroll
+    requestAnimationFrame(() => {
+      requestAnimationFrame(() => {
+        this.elements.messages.scrollTop = this.elements.messages.scrollHeight;
+      });
+    });
 
     try {
       // Check if we're switching to a different chat
