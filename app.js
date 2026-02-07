@@ -4213,6 +4213,78 @@ Example: [0, 2, 5]`;
     return '';
   }
 
+  extractFileAttachments(message) {
+    if (!message) return null;
+
+    const attachments = [];
+
+    // Check for filePath field (single file)
+    if (message.filePath) {
+      attachments.push({
+        path: message.filePath,
+        name: message.filePath.split('/').pop(),
+        type: this.detectFileType(message.filePath)
+      });
+    }
+
+    // Check for media field (can be array or single object)
+    if (message.media) {
+      const mediaArray = Array.isArray(message.media) ? message.media : [message.media];
+      mediaArray.forEach(media => {
+        if (media.path || media.filePath || media.url) {
+          const path = media.path || media.filePath || media.url;
+          attachments.push({
+            path: path,
+            name: media.name || path.split('/').pop(),
+            type: media.type || this.detectFileType(path),
+            size: media.size,
+            mimeType: media.mimeType || media.mime_type
+          });
+        }
+      });
+    }
+
+    // Also check content array for file references (MEDIA: format)
+    if (Array.isArray(message.content)) {
+      message.content.forEach(item => {
+        if (item.type === 'text' && item.text) {
+          // Look for MEDIA:/path/to/file pattern
+          const mediaMatches = item.text.match(/MEDIA:([^\s\n]+)/g);
+          if (mediaMatches) {
+            mediaMatches.forEach(match => {
+              const path = match.replace('MEDIA:', '');
+              attachments.push({
+                path: path,
+                name: path.split('/').pop(),
+                type: this.detectFileType(path)
+              });
+            });
+          }
+        }
+      });
+    }
+
+    return attachments.length > 0 ? attachments : null;
+  }
+
+  detectFileType(filename) {
+    const ext = filename.split('.').pop()?.toLowerCase();
+    if (!ext) return 'file';
+
+    const imageExts = ['jpg', 'jpeg', 'png', 'gif', 'webp', 'svg', 'bmp', 'ico'];
+    const audioExts = ['mp3', 'wav', 'ogg', 'aac', 'm4a', 'flac', 'opus'];
+    const videoExts = ['mp4', 'webm', 'mov', 'avi', 'mkv'];
+    const archiveExts = ['zip', 'tar', 'gz', 'rar', '7z', 'bz2'];
+    const documentExts = ['pdf', 'doc', 'docx', 'xls', 'xlsx', 'ppt', 'pptx'];
+
+    if (imageExts.includes(ext)) return 'image';
+    if (audioExts.includes(ext)) return 'audio';
+    if (videoExts.includes(ext)) return 'video';
+    if (archiveExts.includes(ext)) return 'archive';
+    if (documentExts.includes(ext)) return 'document';
+    return 'file';
+  }
+
   generateTitle(messages) {
     const firstUserMsg = messages.find(m => m.role === 'user');
     if (firstUserMsg) {
@@ -4725,6 +4797,11 @@ Example: [0, 2, 5]`;
           }).join('')}</div>`
         : '';
 
+      // Render assistant attachments if present
+      const attachmentsHtml = msg.attachments && msg.attachments.length > 0
+        ? this.renderFileAttachments(msg.attachments)
+        : '';
+
       return `
         <div class="message ${msg.role}" data-idx="${originalIdx}">
           <div class="message-header">
@@ -4733,6 +4810,7 @@ Example: [0, 2, 5]`;
           </div>
           ${imagesHtml}
           ${textFilesHtml}
+          ${attachmentsHtml}
           <div class="message-content">${this.formatContent(msg.content)}</div>
           <div class="message-actions">
             <button class="msg-action-btn copy-btn" title="Copy">${copyIcon}</button>
@@ -4820,6 +4898,24 @@ Example: [0, 2, 5]`;
         const msgEl = e.target.closest('.message');
         const content = msgEl.querySelector('.message-content').textContent;
         this.toggleSpeech(btn, content);
+      });
+    });
+
+    // Attachment download buttons
+    this.elements.messages.querySelectorAll('.attachment-download-btn').forEach(btn => {
+      btn.addEventListener('click', (e) => {
+        const attachmentCard = e.target.closest('[data-attachment-idx]');
+        const msgEl = e.target.closest('.message');
+        const msgIdx = parseInt(msgEl.dataset.idx);
+        const attachmentIdx = parseInt(attachmentCard.dataset.attachmentIdx);
+        this.downloadAttachment(msgIdx, attachmentIdx);
+      });
+    });
+
+    // Clickable attachment images (lightbox)
+    this.elements.messages.querySelectorAll('.clickable-attachment-img').forEach(img => {
+      img.addEventListener('click', (e) => {
+        this.showImageLightbox(e.target.src, e.target.alt);
       });
     });
   }
@@ -5793,10 +5889,155 @@ Example: [0, 2, 5]`;
     return icons[ext] || '📄';
   }
 
+  getFileTypeIcon(type, filename) {
+    const ext = filename.split('.').pop()?.toLowerCase();
+
+    switch (type) {
+      case 'image':
+        return '🖼️';
+      case 'audio':
+        return '🎵';
+      case 'video':
+        return '🎬';
+      case 'archive':
+        return '📦';
+      case 'document':
+        return this.getFileIcon(ext);
+      default:
+        return this.getFileIcon(ext);
+    }
+  }
+
+  renderFileAttachments(attachments) {
+    if (!attachments || attachments.length === 0) return '';
+
+    const html = attachments.map((file, idx) => {
+      const icon = this.getFileTypeIcon(file.type, file.name);
+      const sizeText = file.size ? this.formatFileSize(file.size) : '';
+
+      // For images, render inline preview
+      if (file.type === 'image') {
+        return `<div class="attachment-image" data-attachment-idx="${idx}">
+          <img src="${this.escapeHtml(file.path)}" alt="${this.escapeHtml(file.name)}"
+               class="attachment-img clickable-attachment-img"
+               onerror="this.parentElement.innerHTML='<div class=\\'attachment-card\\'><div class=\\'attachment-icon\\'>${icon}</div><div class=\\'attachment-info\\'><div class=\\'attachment-name\\'>${this.escapeHtml(file.name)}</div>${sizeText ? `<div class=\\'attachment-size\\'>${sizeText}</div>` : ''}</div><button class=\\'attachment-download-btn\\' title=\\'Download\\'>⬇</button></div>'">
+        </div>`;
+      }
+
+      // For audio files, render audio player
+      if (file.type === 'audio') {
+        return `<div class="attachment-audio" data-attachment-idx="${idx}">
+          <div class="attachment-audio-header">
+            <span class="attachment-icon">${icon}</span>
+            <span class="attachment-name">${this.escapeHtml(file.name)}</span>
+            ${sizeText ? `<span class="attachment-size">${sizeText}</span>` : ''}
+          </div>
+          <audio controls class="attachment-audio-player">
+            <source src="${this.escapeHtml(file.path)}" type="${this.escapeHtml(file.mimeType || 'audio/mpeg')}">
+            Your browser does not support the audio element.
+          </audio>
+        </div>`;
+      }
+
+      // For all other files, render download card
+      return `<div class="attachment-card" data-attachment-idx="${idx}">
+        <div class="attachment-icon">${icon}</div>
+        <div class="attachment-info">
+          <div class="attachment-name">${this.escapeHtml(file.name)}</div>
+          ${sizeText ? `<div class="attachment-size">${sizeText}</div>` : ''}
+        </div>
+        <button class="attachment-download-btn" title="Download">⬇</button>
+      </div>`;
+    }).join('');
+
+    return `<div class="message-attachments">${html}</div>`;
+  }
+
   formatFileSize(bytes) {
     if (bytes < 1024) return `${bytes} B`;
     if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
     return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+  }
+
+  async downloadAttachment(msgIdx, attachmentIdx) {
+    const chat = this.chats[this.currentChatId];
+    if (!chat || !chat.messages[msgIdx]) return;
+
+    const msg = chat.messages[msgIdx];
+    if (!msg.attachments || !msg.attachments[attachmentIdx]) return;
+
+    const attachment = msg.attachments[attachmentIdx];
+
+    try {
+      // Try to fetch the file
+      const response = await fetch(attachment.path);
+      if (!response.ok) throw new Error('File not found');
+
+      const blob = await response.blob();
+      const url = URL.createObjectURL(blob);
+
+      // Create temporary download link
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = attachment.name;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+
+      // Clean up
+      setTimeout(() => URL.revokeObjectURL(url), 100);
+    } catch (err) {
+      console.error('Failed to download attachment:', err);
+      alert(`Failed to download ${attachment.name}. The file may not be accessible.`);
+    }
+  }
+
+  showImageLightbox(src, alt) {
+    // Create lightbox overlay if it doesn't exist
+    let lightbox = document.getElementById('imageLightbox');
+    if (!lightbox) {
+      lightbox = document.createElement('div');
+      lightbox.id = 'imageLightbox';
+      lightbox.className = 'image-lightbox';
+      lightbox.innerHTML = `
+        <div class="lightbox-overlay"></div>
+        <div class="lightbox-content">
+          <img class="lightbox-img" src="" alt="">
+          <button class="lightbox-close" title="Close">✕</button>
+        </div>
+      `;
+      document.body.appendChild(lightbox);
+
+      // Close on overlay click
+      lightbox.querySelector('.lightbox-overlay').addEventListener('click', () => {
+        this.closeLightbox();
+      });
+
+      // Close on close button click
+      lightbox.querySelector('.lightbox-close').addEventListener('click', () => {
+        this.closeLightbox();
+      });
+
+      // Close on Escape key
+      document.addEventListener('keydown', (e) => {
+        if (e.key === 'Escape' && lightbox.classList.contains('active')) {
+          this.closeLightbox();
+        }
+      });
+    }
+
+    // Set image and show lightbox
+    const img = lightbox.querySelector('.lightbox-img');
+    img.src = src;
+    img.alt = alt;
+    lightbox.classList.add('active');
+  }
+
+  closeLightbox() {
+    const lightbox = document.getElementById('imageLightbox');
+    if (lightbox) {
+      lightbox.classList.remove('active');
+    }
   }
 
   fileToBase64(file) {
@@ -6369,7 +6610,10 @@ Example: [0, 2, 5]`;
       } else if (finalContent) {
         // Track output tokens
         this.addTokens(this.estimateTokens(finalContent));
-        this.addAssistantMessage(finalContent);
+
+        // Extract file attachments from payload
+        const attachments = this.extractFileAttachments(payload.message);
+        this.addAssistantMessage(finalContent, attachments);
 
         // Feed to Talk Mode if active
         if (this.talkModeActive && this._talkWaitingForResponse) {
@@ -6414,7 +6658,7 @@ Example: [0, 2, 5]`;
     this.scrollToBottom();
   }
 
-  addAssistantMessage(content) {
+  addAssistantMessage(content, attachments = null) {
     if (!this.currentChatId || !this.chats[this.currentChatId]) return;
     if (!content || !content.trim()) return; // Skip empty messages
 
@@ -6424,6 +6668,11 @@ Example: [0, 2, 5]`;
       content: content,
       timestamp: Date.now()
     };
+
+    // Add file attachments if present
+    if (attachments && attachments.length > 0) {
+      assistantMsg.attachments = attachments;
+    }
     this.chats[this.currentChatId].messages.push(assistantMsg);
     this.chats[this.currentChatId].updatedAt = Date.now();
     this.saveChats(); // Save without broadcasting full chat (incremental relay below)
