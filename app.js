@@ -5963,6 +5963,31 @@ Example: [0, 2, 5]`;
         this.showImageLightbox(e.target.src, e.target.alt);
       });
     });
+
+    // Tool call card expand/collapse
+    this.elements.messages.querySelectorAll('.tool-call-header').forEach(header => {
+      header.addEventListener('click', () => {
+        const card = header.closest('.tool-call-card');
+        card.classList.toggle('expanded');
+      });
+    });
+
+    // Tool call result copy buttons
+    this.elements.messages.querySelectorAll('.tool-call-copy-btn').forEach(btn => {
+      btn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        const resultPre = btn.closest('.tool-call-result').querySelector('pre');
+        if (!resultPre) return;
+        navigator.clipboard.writeText(resultPre.textContent).then(() => {
+          btn.classList.add('copied');
+          btn.innerHTML = '\u2713';
+          setTimeout(() => {
+            btn.classList.remove('copied');
+            btn.innerHTML = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>`;
+          }, 1500);
+        });
+      });
+    });
   }
 
   editMessage(idx) {
@@ -6334,12 +6359,137 @@ Example: [0, 2, 5]`;
     }
   }
 
+  detectToolCalls(content) {
+    if (!content) return [];
+    const toolCalls = [];
+
+    // Pattern 1: [Tool: name] param: value blocks
+    // Matches multi-line blocks starting with [Tool: ...] until next blank line or end
+    const toolTagRegex = /\[Tool:\s*(\w+)\]\s*([\s\S]*?)(?=\n\n|\[Tool:|\n\[|$)/g;
+    let match;
+    while ((match = toolTagRegex.exec(content)) !== null) {
+      const params = match[2].trim();
+      toolCalls.push({
+        start: match.index,
+        end: match.index + match[0].length,
+        name: match[1],
+        params: params,
+        result: '',
+        status: 'success'
+      });
+    }
+
+    // Pattern 2: [exec] command: ... or [tool_name] blocks
+    const bracketToolRegex = /\[(\w+)\]\s*([\s\S]*?)(?=\n\n|\n\[|$)/g;
+    while ((match = bracketToolRegex.exec(content)) !== null) {
+      const name = match[1].toLowerCase();
+      // Skip if already captured by Pattern 1, or if it looks like a markdown link
+      if (name === 'tool' || toolCalls.some(tc => tc.start === match.index)) continue;
+      const knownTools = ['exec', 'bash', 'read', 'write', 'edit', 'web_search', 'web_fetch', 'browser', 'memory_search', 'memory_store', 'glob', 'grep'];
+      if (!knownTools.includes(name)) continue;
+      toolCalls.push({
+        start: match.index,
+        end: match.index + match[0].length,
+        name: match[1],
+        params: match[2].trim(),
+        result: '',
+        status: 'success'
+      });
+    }
+
+    // Pattern 3: "Running:" or "Executing:" followed by a code block
+    const runningRegex = /((?:Running|Executing|Command):\s*)```(\w*)\n([\s\S]*?)```(?:\s*(?:Output|Result|Returns):\s*```(?:\w*)\n([\s\S]*?)```)?/g;
+    while ((match = runningRegex.exec(content)) !== null) {
+      // Skip if overlapping with existing tool calls
+      if (toolCalls.some(tc => match.index >= tc.start && match.index < tc.end)) continue;
+      toolCalls.push({
+        start: match.index,
+        end: match.index + match[0].length,
+        name: match[2] || 'Bash',
+        params: match[3].trim(),
+        result: match[4] ? match[4].trim() : '',
+        status: match[4] && match[4].toLowerCase().includes('error') ? 'error' : 'success'
+      });
+    }
+
+    // Sort by position and remove overlaps
+    toolCalls.sort((a, b) => a.start - b.start);
+    const filtered = [];
+    let lastEnd = -1;
+    for (const tc of toolCalls) {
+      if (tc.start >= lastEnd) {
+        filtered.push(tc);
+        lastEnd = tc.end;
+      }
+    }
+    return filtered;
+  }
+
+  getToolIcon(name) {
+    const icons = {
+      'exec': '\u{1F4BB}',
+      'bash': '\u{1F4BB}',
+      'Bash': '\u{1F4BB}',
+      'read': '\u{1F4C4}',
+      'Read': '\u{1F4C4}',
+      'write': '\u{270F}\uFE0F',
+      'Write': '\u{270F}\uFE0F',
+      'edit': '\u{270F}\uFE0F',
+      'Edit': '\u{270F}\uFE0F',
+      'web_search': '\u{1F50D}',
+      'web_fetch': '\u{1F310}',
+      'browser': '\u{1F310}',
+      'memory_search': '\u{1F9E0}',
+      'memory_store': '\u{1F9E0}',
+      'glob': '\u{1F4C2}',
+      'Glob': '\u{1F4C2}',
+      'grep': '\u{1F50E}',
+      'Grep': '\u{1F50E}'
+    };
+    return icons[name] || '\u{1F527}';
+  }
+
+  getToolStatusColor(status) {
+    if (status === 'error') return 'tool-status-error';
+    if (status === 'running') return 'tool-status-running';
+    return 'tool-status-success';
+  }
+
+  renderToolCallCard(toolCall, index) {
+    const icon = this.getToolIcon(toolCall.name);
+    const statusClass = this.getToolStatusColor(toolCall.status);
+    const escapedParams = this.escapeHtml(toolCall.params);
+    const escapedResult = toolCall.result ? this.escapeHtml(toolCall.result) : '';
+    const copyIcon = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>`;
+
+    let bodyHtml = '';
+    if (escapedParams) {
+      bodyHtml += `<div class="tool-call-params"><span class="tool-call-label">Parameters</span><pre>${escapedParams}</pre></div>`;
+    }
+    if (escapedResult) {
+      bodyHtml += `<div class="tool-call-result"><span class="tool-call-label">Result</span><pre>${escapedResult}</pre><button class="tool-call-copy-btn" data-tool-idx="${index}" title="Copy result">${copyIcon}</button></div>`;
+    }
+
+    return `<div class="tool-call-card ${statusClass}" data-tool-idx="${index}"><div class="tool-call-header"><span class="tool-call-icon">${icon}</span><span class="tool-call-name">${this.escapeHtml(toolCall.name)}</span><span class="tool-call-chevron">&#9660;</span></div>${bodyHtml ? `<div class="tool-call-body">${bodyHtml}</div>` : ''}</div>`;
+  }
+
   formatContent(content) {
     if (!content) return '';
 
+    // Detect tool calls in raw content and replace with placeholders
+    const toolCalls = this.detectToolCalls(content);
+    const toolCardHtmls = [];
+    let html = content;
+
+    // Replace tool call regions with placeholders (reverse order to preserve indices)
+    for (let i = toolCalls.length - 1; i >= 0; i--) {
+      const tc = toolCalls[i];
+      toolCardHtmls[i] = this.renderToolCallCard(tc, i);
+      html = html.substring(0, tc.start) + `__TOOLCALL_${i}__` + html.substring(tc.end);
+    }
+
     // Store code blocks temporarily to protect them from other transformations
     const codeBlocks = [];
-    let html = content;
 
     // Extract and placeholder code blocks first
     html = html.replace(/```(\w*)\n?([\s\S]*?)```/g, (match, lang, code) => {
@@ -6388,6 +6538,11 @@ Example: [0, 2, 5]`;
       return `<div class="code-block"><button class="code-copy-btn" title="Copy code">${copyIcon}</button><pre ${langAttr}><code class="${langClass}">${escapedCode}</code></pre></div>`;
     });
 
+    // Restore tool call cards (after code blocks, since they contain pre-rendered HTML)
+    html = html.replace(/__TOOLCALL_(\d+)__/g, (match, index) => {
+      return toolCardHtmls[parseInt(index)] || '';
+    });
+
     return this.sanitize(html);
   }
 
@@ -6429,7 +6584,8 @@ Example: [0, 2, 5]`;
       return DOMPurify.sanitize(html, {
         ADD_TAGS: ['svg', 'rect', 'path', 'polygon', 'circle', 'line'],
         ADD_ATTR: ['viewBox', 'fill', 'stroke', 'stroke-width', 'd', 'x', 'y',
-                   'width', 'height', 'rx', 'points', 'cx', 'cy', 'r', 'data-language']
+                   'width', 'height', 'rx', 'points', 'cx', 'cy', 'r', 'data-language',
+                   'data-tool-idx']
       });
     }
     // DOMPurify not loaded — strip all HTML tags as fallback

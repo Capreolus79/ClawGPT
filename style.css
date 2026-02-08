@@ -6281,3 +6281,174 @@ body {
     max-height: calc(100vh - 65px);
   }
 }
+
+/* Tool Call Cards */
+.tool-call-card {
+  border-radius: 8px;
+  border: 1px solid var(--border-color);
+  border-left: 3px solid var(--accent-color);
+  background: var(--bg-secondary);
+  margin: 12px 0;
+  overflow: hidden;
+}
+
+.tool-call-card.tool-status-error {
+  border-left-color: #ef4444;
+}
+
+.tool-call-card.tool-status-running {
+  border-left-color: #f59e0b;
+}
+
+.tool-call-card.tool-status-success {
+  border-left-color: var(--accent-color);
+}
+
+.tool-call-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 14px;
+  cursor: pointer;
+  user-select: none;
+  transition: background 0.15s;
+}
+
+.tool-call-header:hover {
+  background: var(--bg-tertiary);
+}
+
+.tool-call-icon {
+  font-size: 14px;
+  flex-shrink: 0;
+}
+
+.tool-call-name {
+  font-family: 'SF Mono', 'Fira Code', 'Cascadia Code', monospace;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-primary);
+  flex: 1;
+}
+
+.tool-call-chevron {
+  font-size: 10px;
+  color: var(--text-muted);
+  transition: transform 0.2s;
+}
+
+.tool-call-card.expanded .tool-call-chevron {
+  transform: rotate(180deg);
+}
+
+.tool-call-body {
+  display: none;
+  border-top: 1px solid var(--border-color);
+  padding: 12px 14px;
+}
+
+.tool-call-card.expanded .tool-call-body {
+  display: block;
+}
+
+.tool-call-label {
+  display: block;
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  color: var(--text-muted);
+  margin-bottom: 6px;
+}
+
+.tool-call-params pre,
+.tool-call-result pre {
+  font-family: 'SF Mono', 'Fira Code', 'Cascadia Code', monospace;
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--text-secondary);
+  background: var(--bg-primary);
+  padding: 10px 12px;
+  border-radius: 6px;
+  margin: 0;
+  white-space: pre-wrap;
+  word-break: break-word;
+  overflow: auto;
+}
+
+.tool-call-result {
+  margin-top: 10px;
+  position: relative;
+}
+
+.tool-call-result pre {
+  max-height: 300px;
+  overflow-y: auto;
+}
+
+.tool-call-copy-btn {
+  position: absolute;
+  top: 28px;
+  right: 8px;
+  background: rgba(255, 255, 255, 0.1);
+  border: none;
+  border-radius: 4px;
+  color: #888;
+  cursor: pointer;
+  padding: 5px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  opacity: 0;
+  transition: all 0.15s;
+}
+
+.tool-call-result:hover .tool-call-copy-btn {
+  opacity: 1;
+}
+
+.tool-call-copy-btn:hover {
+  background: rgba(255, 255, 255, 0.2);
+  color: #fff;
+}
+
+.tool-call-copy-btn svg {
+  width: 14px;
+  height: 14px;
+}
+
+.tool-call-copy-btn.copied {
+  color: var(--accent-color);
+  opacity: 1;
+}
+
+/* Light theme overrides */
+[data-theme="light"] .tool-call-copy-btn {
+  background: rgba(0, 0, 0, 0.05);
+  color: #666;
+}
+
+[data-theme="light"] .tool-call-copy-btn:hover {
+  background: rgba(0, 0, 0, 0.1);
+  color: #333;
+}
+
+@media (max-width: 768px) {
+  .tool-call-card {
+    margin: 8px 0;
+  }
+
+  .tool-call-header {
+    padding: 8px 10px;
+  }
+
+  .tool-call-body {
+    padding: 8px 10px;
+  }
+
+  .tool-call-params pre,
+  .tool-call-result pre {
+    font-size: 11px;
+    padding: 8px;
+  }
+}
