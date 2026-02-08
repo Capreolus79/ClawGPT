@@ -330,13 +330,21 @@ body {
 }
 
 .sidebar-footer {
-  padding: 12px;
+  padding: 8px 12px;
   border-top: 1px solid var(--border-color);
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 4px;
 }
 
-.sessions-btn {
-  width: 100%;
-  padding: 12px 16px;
+.sidebar-footer .sessions-btn,
+.sidebar-footer .cron-btn,
+.sidebar-footer .settings-btn,
+.sidebar-footer .help-btn {
+  flex: 1 1 auto;
+  min-width: 0;
+  padding: 8px;
   background: transparent;
   border: none;
   border-radius: 8px;
@@ -344,92 +352,30 @@ body {
   cursor: pointer;
   display: flex;
   align-items: center;
-  gap: 12px;
-  font-size: 14px;
+  justify-content: center;
+  gap: 6px;
+  font-size: 12px;
   transition: background 0.2s;
+  white-space: nowrap;
+  overflow: hidden;
 }
 
-.sessions-btn:hover {
+.sidebar-footer .sessions-btn:hover,
+.sidebar-footer .cron-btn:hover,
+.sidebar-footer .settings-btn:hover,
+.sidebar-footer .help-btn:hover {
   background: var(--bg-tertiary);
 }
 
-.sessions-btn svg {
+.sidebar-footer .sessions-btn svg,
+.sidebar-footer .cron-btn svg,
+.sidebar-footer .settings-btn svg,
+.sidebar-footer .help-btn svg {
   width: 16px;
   height: 16px;
-}
-
-.cron-btn {
-  width: 100%;
-  padding: 12px 16px;
-  background: transparent;
-  border: none;
-  border-radius: 8px;
-  color: var(--text-secondary);
-  cursor: pointer;
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  font-size: 14px;
-  transition: background 0.2s;
-}
-
-.cron-btn:hover {
-  background: var(--bg-tertiary);
-}
-
-.cron-btn svg {
-  width: 16px;
-  height: 16px;
-}
-
-.settings-btn {
-  width: 100%;
-  padding: 12px 16px;
-  background: transparent;
-  border: none;
-  border-radius: 8px;
-  color: var(--text-secondary);
-  cursor: pointer;
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  font-size: 14px;
-  transition: background 0.2s;
-}
-
-.settings-btn:hover {
-  background: var(--bg-tertiary);
-}
-
-.settings-btn svg {
-  width: 16px;
-  height: 16px;
-}
-
-.help-btn {
-  width: 100%;
-  padding: 12px 16px;
-  background: transparent;
-  border: none;
-  border-radius: 8px;
-  color: var(--text-secondary);
-  cursor: pointer;
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  font-size: 14px;
-  transition: background 0.2s;
-}
-
-.help-btn:hover {
-  background: var(--bg-tertiary);
-}
-
-.help-btn svg {
-  width: 18px;
-  height: 18px;
   flex-shrink: 0;
 }
+
 
 /* Shortcuts modal */
 .shortcuts-body {
@@ -2523,12 +2469,6 @@ body {
 }
 
 /* Sidebar collapse button */
-.sidebar-footer {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-
 .collapse-btn {
   padding: 12px;
   background: transparent;

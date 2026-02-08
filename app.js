@@ -196,7 +196,7 @@ class ClawGPT {
                   maxProtocol: 3,
                   client: { id: 'clawgpt-probe', version: '0.1.0' },
                   role: 'operator',
-                  scopes: [],
+                  scopes: ['operator.read', 'operator.write', 'operator.admin'],
                   auth: {}
                 }
               }));
@@ -1923,7 +1923,7 @@ window.CLAWGPT_CONFIG = {
         maxProtocol: 3,
         client: { id: 'clawgpt-mobile', version: '0.1.0' },
         role: 'operator',
-        scopes: [],
+        scopes: ['operator.read', 'operator.write', 'operator.admin'],
         auth: { token: this.authToken }
       }
     });
@@ -4986,7 +4986,7 @@ Example: [0, 2, 5]`;
           mode: 'ui'
         },
         role: 'operator',
-        scopes: ['operator.read', 'operator.write'],
+        scopes: ['operator.read', 'operator.write', 'operator.admin'],
         caps: [],
         commands: [],
         permissions: {},
@@ -9703,22 +9703,18 @@ If multiple files, return multiple objects in the array.`;
   // --- Workspace Panel ---
 
   async loadWorkspaceFiles() {
-    if (!this.connected) {
-      this.showToast('Not connected to gateway');
-      return;
-    }
-
     const workspacePath = this.elements.workspacePath.value.trim() || '~/.openclaw/workspace';
 
     try {
-      // Use find to list all files and directories
-      const result = await this.request('exec.run', {
-        command: `find "${workspacePath}" -maxdepth 3 \\( -type f -o -type d \\) | head -100`,
-        shell: '/bin/bash'
-      });
+      const res = await fetch(`/api/workspace?path=${encodeURIComponent(workspacePath)}&depth=3`);
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({ error: res.statusText }));
+        throw new Error(err.error || 'Failed to list workspace');
+      }
+      const data = await res.json();
 
-      if (result && result.stdout) {
-        const lines = result.stdout.trim().split('\n').filter(l => l.trim());
+      if (data.files && data.files.length > 0) {
+        const lines = data.files.map(f => f.path);
         this.workspaceFileTree = this.buildFileTree(lines, workspacePath);
         this.renderWorkspaceTree();
       } else {
@@ -9882,20 +9878,17 @@ If multiple files, return multiple objects in the array.`;
   }
 
   async openWorkspaceFile(filePath) {
-    if (!this.connected) {
-      this.showToast('Not connected to gateway');
-      return;
-    }
-
     try {
-      const result = await this.request('exec.run', {
-        command: `cat "${filePath}"`,
-        shell: '/bin/bash'
-      });
+      const res = await fetch(`/api/workspace/file?path=${encodeURIComponent(filePath)}`);
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({ error: res.statusText }));
+        throw new Error(err.error || 'Failed to read file');
+      }
+      const content = await res.text();
 
-      if (result && result.stdout !== undefined) {
+      {
         this.currentWorkspaceFile = filePath;
-        this.currentWorkspaceContent = result.stdout;
+        this.currentWorkspaceContent = content;
 
         // Show viewer
         this.elements.workspaceViewer.style.display = 'flex';
@@ -9905,7 +9898,7 @@ If multiple files, return multiple objects in the array.`;
         const ext = filePath.split('.').pop().toLowerCase();
         const language = this.getLanguageFromExtension(ext);
         const code = this.elements.workspaceViewerCode;
-        code.textContent = result.stdout;
+        code.textContent = content;
         code.className = `language-${language}`;
 
         // Apply Prism highlighting
@@ -9980,18 +9973,19 @@ If multiple files, return multiple objects in the array.`;
   }
 
   async saveWorkspaceFile() {
-    if (!this.connected || !this.currentWorkspaceFile) return;
+    if (!this.currentWorkspaceFile) return;
 
     const newContent = this.elements.workspaceEditorTextarea.value;
 
     try {
-      // Escape content for heredoc
-      const escapedContent = newContent.replace(/\\/g, '\\\\').replace(/'/g, "\\'");
-
-      const result = await this.request('exec.run', {
-        command: `cat > "${this.currentWorkspaceFile}" << 'CLAWGPT_EOF'\n${newContent}\nCLAWGPT_EOF`,
-        shell: '/bin/bash'
+      const res = await fetch(`/api/workspace/file?path=${encodeURIComponent(this.currentWorkspaceFile)}`, {
+        method: 'PUT',
+        body: newContent
       });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({ error: res.statusText }));
+        throw new Error(err.error || 'Failed to save file');
+      }
 
       this.showToast('File saved successfully');
       this.currentWorkspaceContent = newContent;
